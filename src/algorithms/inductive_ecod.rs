@@ -3,10 +3,12 @@ use num_traits::float::{Float, TotalOrder};
 use super::common::{
     compute_score, compute_skewness, left_tail, right_tail, validate_finity, validate_shape,
 };
-use crate::errors::Error;
-use crate::types::{ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict};
+use crate::errors::{CorruptionKind, Error};
+use crate::types::{ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, Validate};
 
 pub struct InductiveECOD;
+
+#[derive(bitcode::Encode, bitcode::Decode)]
 pub struct InductiveECODModel<T> {
     data: FloatMatrix<T>,
     skewnesses: FloatVector<T>,
@@ -65,5 +67,29 @@ impl<T: Float + TotalOrder> Predict<T> for InductiveECODModel<T> {
             }
         }
         Ok(res)
+    }
+}
+
+impl<T: Float> Validate for InductiveECODModel<T> {
+    fn validate(&self) -> Result<(), Error> {
+        let corrupted = |kind| Error::CorruptedModel { kind };
+
+        if self.data.len() != self.skewnesses.len() {
+            return Err(corrupted(CorruptionKind::SkewnessCountMismatch));
+        }
+        validate_finity(&self.data).map_err(|e| {
+            corrupted(match e {
+                Error::EmptyInput => CorruptionKind::Empty,
+                Error::RaggedRows => CorruptionKind::RaggedFeatures,
+                _ => CorruptionKind::NonFiniteData,
+            })
+        })?;
+        if self.skewnesses.iter().any(|v| !v.is_finite()) {
+            return Err(corrupted(CorruptionKind::NonFiniteSkewness));
+        }
+        if self.data.iter().any(|v| !v.is_sorted()) {
+            return Err(corrupted(CorruptionKind::UnsortedFeature));
+        }
+        Ok(())
     }
 }
