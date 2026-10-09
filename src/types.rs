@@ -61,7 +61,7 @@ where
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let model = bitcode::decode::<Self>(bytes).map_err(|_| Error::Decode)?;
-        model.validate();
+        model.validate()?;
         Ok(model)
     }
 }
