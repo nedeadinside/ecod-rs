@@ -3,10 +3,12 @@ use num_traits::float::{Float, TotalOrder};
 use super::common::{
     compute_score, compute_skewness, left_tail, right_tail, validate_finity, validate_shape,
 };
-use crate::errors::Error;
-use crate::types::{ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict};
+use crate::errors::{CorruptionKind, Error};
+use crate::types::{ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, Validate};
 
 pub struct InductiveECOD;
+
+#[derive(bitcode::Encode, bitcode::Decode)]
 pub struct InductiveECODModel<T> {
     data: FloatMatrix<T>,
     skewnesses: FloatVector<T>,
@@ -65,5 +67,106 @@ impl<T: Float + TotalOrder> Predict<T> for InductiveECODModel<T> {
             }
         }
         Ok(res)
+    }
+}
+
+impl<T: Float> Validate for InductiveECODModel<T> {
+    fn validate(&self) -> Result<(), Error> {
+        let corrupted = |kind| Error::CorruptedModel { kind };
+
+        if self.data.len() != self.skewnesses.len() {
+            return Err(corrupted(CorruptionKind::SkewnessCountMismatch));
+        }
+        validate_finity(&self.data).map_err(|e| {
+            corrupted(match e {
+                Error::EmptyInput => CorruptionKind::Empty,
+                Error::RaggedRows => CorruptionKind::RaggedFeatures,
+                _ => CorruptionKind::NonFiniteData,
+            })
+        })?;
+        if self.skewnesses.iter().any(|v| !v.is_finite()) {
+            return Err(corrupted(CorruptionKind::NonFiniteSkewness));
+        }
+        if self.data.iter().any(|v| !v.is_sorted()) {
+            return Err(corrupted(CorruptionKind::UnsortedFeature));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Persist;
+
+    fn fitted() -> InductiveECODModel<f64> {
+        InductiveECOD
+            .fit(&vec![vec![3.0, 1.0, 2.0], vec![-1.0, 5.0, 0.5]])
+            .unwrap()
+    }
+
+    fn assert_corrupted(model: InductiveECODModel<f64>, kind: CorruptionKind) {
+        assert_eq!(model.validate(), Err(Error::CorruptedModel { kind }));
+    }
+
+    #[test]
+    fn validate_accepts_fitted_model() {
+        assert_eq!(fitted().validate(), Ok(()));
+    }
+
+    #[test]
+    fn validate_rejects_skewness_count_mismatch() {
+        let mut m = fitted();
+        m.skewnesses.pop();
+        assert_corrupted(m, CorruptionKind::SkewnessCountMismatch);
+    }
+
+    #[test]
+    fn validate_rejects_empty_model() {
+        let mut m = fitted();
+        m.data.clear();
+        m.skewnesses.clear();
+        assert_corrupted(m, CorruptionKind::Empty);
+    }
+
+    #[test]
+    fn validate_rejects_ragged_features() {
+        let mut m = fitted();
+        m.data[1].pop();
+        assert_corrupted(m, CorruptionKind::RaggedFeatures);
+    }
+
+    #[test]
+    fn validate_rejects_non_finite_data() {
+        let mut m = fitted();
+        m.data[0][0] = f64::NAN;
+        assert_corrupted(m, CorruptionKind::NonFiniteData);
+    }
+
+    #[test]
+    fn validate_rejects_non_finite_skewness() {
+        let mut m = fitted();
+        m.skewnesses[0] = f64::INFINITY;
+        assert_corrupted(m, CorruptionKind::NonFiniteSkewness);
+    }
+
+    #[test]
+    fn validate_rejects_unsorted_feature() {
+        let mut m = fitted();
+        m.data[0].reverse();
+        assert_corrupted(m, CorruptionKind::UnsortedFeature);
+    }
+
+    #[test]
+    fn bytes_roundtrip_keeps_model() {
+        let m = fitted();
+        let restored = InductiveECODModel::<f64>::from_bytes(&m.to_bytes()).unwrap();
+        assert_eq!(restored.data, m.data);
+        assert_eq!(restored.skewnesses, m.skewnesses);
+    }
+
+    #[test]
+    fn from_bytes_rejects_garbage() {
+        assert!(InductiveECODModel::<f64>::from_bytes(b"garbage").is_err());
     }
 }

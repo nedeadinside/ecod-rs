@@ -1,4 +1,5 @@
 # Stub file
+import os
 from collections.abc import Sequence
 from typing import Self, final
 
@@ -21,3 +22,6 @@ class InductiveECOD:
         x: Sequence[Sequence[float]],
         method: ECODScoreMethod = ECODScoreMethod.MAX,
     ) -> Sequence[float]: ...
+    def save(self, path: str | os.PathLike[str]) -> None: ...
+    @staticmethod
+    def load(path: str | os.PathLike[str]) -> InductiveECOD: ...
