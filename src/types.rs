@@ -31,6 +31,10 @@ pub trait Predict<T: Float> {
     ) -> Result<FloatVector<T>, Error>;
 }
 
+pub trait Validate {
+    fn validate(&self) -> Result<(), Error>;
+}
+
 /// Trait to save and load models via blanket impl
 pub trait Persist: Sized {
     fn to_bytes(&self) -> Vec<u8>;
@@ -49,13 +53,15 @@ pub trait Persist: Sized {
 
 impl<T> Persist for T
 where
-    T: bitcode::Encode + bitcode::DecodeOwned,
+    T: bitcode::Encode + bitcode::DecodeOwned + Validate,
 {
     fn to_bytes(&self) -> Vec<u8> {
         bitcode::encode(self)
     }
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        bitcode::decode(bytes).map_err(|_| Error::Decode)
+        let model = bitcode::decode::<Self>(bytes).map_err(|_| Error::Decode)?;
+        model.validate();
+        Ok(model)
     }
 }
