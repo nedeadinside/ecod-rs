@@ -158,11 +158,13 @@ mod tests {
     }
 
     #[test]
-    fn bytes_roundtrip_keeps_model() {
+    fn bytes_roundtrip_keeps_model() -> Result<(), Box<dyn std::error::Error>> {
         let m = fitted();
-        let restored = InductiveECODModel::<f64>::from_bytes(&m.to_bytes()).unwrap();
+        let restored =
+            InductiveECODModel::<f64>::from_bytes(&m.to_bytes(zstd::DEFAULT_COMPRESSION_LEVEL)?)?;
         assert_eq!(restored.data, m.data);
         assert_eq!(restored.skewnesses, m.skewnesses);
+        Ok(())
     }
 
     #[test]

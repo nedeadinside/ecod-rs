@@ -19,6 +19,8 @@ impl From<Error> for PyErr {
         match err {
             // pyo3 maps io::ErrorKind to FileNotFoundError, PermissionError, etc.
             Error::Io { kind } => io::Error::from(kind).into(),
+            Error::Compress => PyRuntimeError::new_err("failed to compress model bytes"),
+            Error::Decompress => PyRuntimeError::new_err("failed to decompress model bytes"),
             _ => PyValueError::new_err(err.to_string()),
         }
     }
@@ -57,13 +59,13 @@ impl PyInductiveECOD {
         Ok(py.detach(|| model.decision_function(&x, method))?)
     }
 
-    #[pyo3(signature = (path))]
-    fn save(&self, py: Python<'_>, path: PathBuf) -> PyResult<()> {
+    #[pyo3(signature = (path, *, compression_level = None))]
+    fn save(&self, py: Python<'_>, path: PathBuf, compression_level: Option<i32>) -> PyResult<()> {
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.save(path))?)
+        Ok(py.detach(|| model.save(path, compression_level))?)
     }
 
     #[staticmethod]
