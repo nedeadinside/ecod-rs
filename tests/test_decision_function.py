@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 import pytest
-from fast_ecod import ECODScoreMethod, InductiveECOD
+from fast_ecod import InductiveECOD
 
 
 def test_scores_shape(data: np.ndarray):
@@ -25,7 +25,7 @@ def test_default_method_is_max(data: np.ndarray):
     """
     x = data.tolist()
     model = InductiveECOD().fit(x)
-    assert model.decision_function(x) == model.decision_function(x, ECODScoreMethod.MAX)
+    assert model.decision_function(x) == model.decision_function(x, "max")
 
 
 def test_accepts_numpy(data: np.ndarray):

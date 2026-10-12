@@ -1,17 +1,9 @@
 # Stub file
 import os
 from collections.abc import Sequence
-from typing import Self, final
+from typing import Literal, Self, final
 
-@final
-class ECODScoreMethod:
-    RIGHT: ECODScoreMethod
-    LEFT: ECODScoreMethod
-    AUTO: ECODScoreMethod
-    MAX: ECODScoreMethod
-
-    def __eq__(self, other: object) -> bool: ...
-    def __int__(self) -> int: ...
+type ECODScoreMethod = Literal["left", "right", "max", "auto"]
 
 @final
 class InductiveECOD:
@@ -20,7 +12,7 @@ class InductiveECOD:
     def decision_function(
         self,
         x: Sequence[Sequence[float]],
-        method: ECODScoreMethod = ECODScoreMethod.MAX,
+        method: ECODScoreMethod = "max",
     ) -> Sequence[float]: ...
     def save(
         self, path: str | os.PathLike[str], *, compression_level: int | None = None

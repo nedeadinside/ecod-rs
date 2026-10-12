@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::pybacked::PyBackedStr;
 
 pub mod algorithms;
 pub mod errors;
@@ -30,6 +31,23 @@ impl From<Error> for PyErr {
 #[pyclass(name = "InductiveECOD")]
 pub struct PyInductiveECOD {
     model: Option<InductiveECODModel<f64>>,
+}
+
+impl FromPyObject<'_, '_> for ECODScoreMethod {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
+        let s: PyBackedStr = obj.extract()?;
+        match &*s {
+            "right" => Ok(Self::RIGHT),
+            "left" => Ok(Self::LEFT),
+            "auto" => Ok(Self::AUTO),
+            "max" => Ok(Self::MAX),
+            other => Err(PyValueError::new_err(format!(
+                "unknown method {other:?}, expected one of: right, left, auto, max"
+            ))),
+        }
+    }
 }
 
 #[pymethods]
@@ -80,6 +98,4 @@ impl PyInductiveECOD {
 mod _core {
     #[pymodule_export]
     use super::PyInductiveECOD;
-    #[pymodule_export]
-    use super::types::ECODScoreMethod;
 }
