@@ -27,6 +27,10 @@ pub enum Error {
         /// Which invariant is broken.
         kind: CorruptionKind,
     },
+    /// Error while compressing
+    Compress,
+    /// Error while decompressing
+    Decompress,
 }
 
 /// Invariant broken in a loaded model.
@@ -59,6 +63,8 @@ impl std::fmt::Display for Error {
             Error::Io { kind } => write!(f, "io error, kind: {kind}"),
             Error::Decode => write!(f, "failed to decode model"),
             Error::CorruptedModel { kind } => write!(f, "model file is corrupted: {kind}"),
+            Error::Compress => write!(f, "failed to compress model bytes"),
+            Error::Decompress => write!(f, "failed to decompress model bytes"),
         }
     }
 }

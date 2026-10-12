@@ -37,11 +37,14 @@ pub trait Validate {
 
 /// Trait to save and load models via blanket impl
 pub trait Persist: Sized {
-    fn to_bytes(&self) -> Vec<u8>;
+    fn to_bytes(&self, compression_level: i32) -> Result<Vec<u8>, Error>;
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
-    fn save(&self, path: impl AsRef<Path>) -> Result<(), Error> {
-        fs::write(path, self.to_bytes())?;
+    fn save(&self, path: impl AsRef<Path>, compression_level: Option<i32>) -> Result<(), Error> {
+        fs::write(
+            path,
+            self.to_bytes(compression_level.unwrap_or(zstd::DEFAULT_COMPRESSION_LEVEL))?,
+        )?;
         Ok(())
     }
 
@@ -55,12 +58,14 @@ impl<T> Persist for T
 where
     T: bitcode::Encode + bitcode::DecodeOwned + Validate,
 {
-    fn to_bytes(&self) -> Vec<u8> {
-        bitcode::encode(self)
+    fn to_bytes(&self, compression_level: i32) -> Result<Vec<u8>, Error> {
+        let model_bytes = bitcode::encode(self);
+        zstd::bulk::compress(&model_bytes, compression_level).map_err(|_| Error::Compress)
     }
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let model = bitcode::decode::<Self>(bytes).map_err(|_| Error::Decode)?;
+        let raw = zstd::decode_all(bytes).map_err(|_| Error::Decompress)?;
+        let model = bitcode::decode::<Self>(&raw).map_err(|_| Error::Decode)?;
         model.validate()?;
         Ok(model)
     }
