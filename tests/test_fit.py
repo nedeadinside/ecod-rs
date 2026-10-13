@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 import pytest
-from fast_ecod import InductiveECOD
+from ecod_rs import InductiveECOD
 
 
 def test_fit_returns_self(data: np.ndarray):

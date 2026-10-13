@@ -1,10 +1,10 @@
 [project]
-version = "0.2.0"
+version = "0.3.0"
 description = "ECOD rust implementation."
 authors = [
     {name = "nedeadinside",email = "aquvva67@gmail.com"}
 ]
-name = "fast-ecod"
+name = "ecod-rs"
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "numpy (>=1.26)"
@@ -23,7 +23,7 @@ dev = [
 
 [tool.maturin]
 python-source = "python"
-module-name = "fast_ecod._core"
+module-name = "ecod_rs._core"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

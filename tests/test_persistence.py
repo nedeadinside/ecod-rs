@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from fast_ecod import InductiveECOD
+from ecod_rs import InductiveECOD
 
 
 @pytest.mark.parametrize("level", [None, -5, 1, 22])

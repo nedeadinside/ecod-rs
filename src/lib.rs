@@ -93,7 +93,7 @@ impl PyInductiveECOD {
     }
 }
 
-/// Rust core of fast_ecod.
+/// Rust core of ecod_rs.
 #[pymodule]
 mod _core {
     #[pymodule_export]

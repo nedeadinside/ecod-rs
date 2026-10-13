@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 import pytest
-from fast_ecod import InductiveECOD
+from ecod_rs import InductiveECOD
 
 
 def test_scores_shape(data: np.ndarray):
