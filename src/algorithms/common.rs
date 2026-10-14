@@ -14,16 +14,6 @@ pub fn compute_score<T: Float>(scores: &mut FloatVector<T>, probs: impl Iterator
     }
 }
 
-/// Right tail probability
-pub fn right_tail<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> T {
-    T::from(sorted.len() - sorted.partition_point(|v| *v < value) + 1).unwrap() / denominator
-}
-
-/// Left tail probability
-pub fn left_tail<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> T {
-    T::from(sorted.partition_point(|v| *v <= value) + 1).unwrap() / denominator
-}
-
 /// Computes skewness of the given vector.
 pub fn compute_skewness<T: Float>(vector: &FloatVector<T>) -> T {
     let n = T::from(vector.len()).unwrap();
@@ -190,25 +180,6 @@ mod tests {
         compute_score(&mut scores, std::iter::once(std::f64::consts::E));
         assert_close(scores[0], 0.0);
         assert_close(scores[1], 2.0);
-    }
-
-    // Tails
-    #[test]
-    fn right_tail_counts_values_ge_plus_one() {
-        let sorted: FloatVector<f64> = vec![1.0, 2.0, 2.0, 3.0];
-        let d = 5.0;
-        assert_close(right_tail(&sorted, 0.0, d), 5.0 / d); // 4 + 1
-        assert_close(right_tail(&sorted, 2.0, d), 4.0 / d); // 2,2,3 + 1
-        assert_close(right_tail(&sorted, 10.0, d), 1.0 / d); // 0 + 1
-    }
-
-    #[test]
-    fn left_tail_counts_values_le_plus_one() {
-        let sorted: FloatVector<f64> = vec![1.0, 2.0, 2.0, 3.0];
-        let d = 5.0;
-        assert_close(left_tail(&sorted, 0.0, d), 1.0 / d);
-        assert_close(left_tail(&sorted, 2.0, d), 4.0 / d); // 1,2,2 + 1
-        assert_close(left_tail(&sorted, 10.0, d), 5.0 / d);
     }
 
     // Skewness

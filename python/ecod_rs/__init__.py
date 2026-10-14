@@ -1,3 +1,3 @@
-from ecod_rs.models import InductiveECOD
+from ecod_rs.models import ECOD, InductiveECOD
 
-__all__ = ["InductiveECOD"]
+__all__ = ["ECOD", "InductiveECOD"]

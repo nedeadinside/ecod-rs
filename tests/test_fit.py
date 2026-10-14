@@ -2,16 +2,17 @@ import math
 
 import numpy as np
 import pytest
-from ecod_rs import InductiveECOD
+from ecod_rs import ECOD, InductiveECOD
 
 
-def test_fit_returns_self(data: np.ndarray):
+def test_fit_returns_self(data: np.ndarray, model_cls: type[InductiveECOD | ECOD]):
     """
     Check that fitting returns the same model for chaining.
 
     :param data: Gaussian feature matrix.
+    :param model_cls: Model class under test.
     """
-    model = InductiveECOD()
+    model = model_cls()
     assert model.fit(data.tolist()) is model
 
 
@@ -25,11 +26,14 @@ def test_fit_returns_self(data: np.ndarray):
     ],
     ids=["empty", "ragged", "nan", "inf"],
 )
-def test_fit_rejects_bad_input(x: list[list[float]]):
+def test_fit_rejects_bad_input(
+    x: list[list[float]], model_cls: type[InductiveECOD | ECOD]
+):
     """
     Check that fitting on malformed input raises.
 
     :param x: Malformed feature matrix.
+    :param model_cls: Model class under test.
     """
     with pytest.raises(ValueError):
-        InductiveECOD().fit(x)
+        model_cls().fit(x)
