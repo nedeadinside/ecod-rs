@@ -1,10 +1,18 @@
 use num_traits::float::{Float, TotalOrder};
 
-use super::common::{
-    compute_score, compute_skewness, left_tail, right_tail, validate_finity, validate_shape,
-};
+use super::common::{compute_score, compute_skewness, validate_finity, validate_shape};
 use crate::errors::{CorruptionKind, Error};
 use crate::types::{ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, Validate};
+
+/// Right tail probability
+pub fn right_tail<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> T {
+    T::from(sorted.len() - sorted.partition_point(|v| *v < value) + 1).unwrap() / denominator
+}
+
+/// Left tail probability
+pub fn left_tail<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> T {
+    T::from(sorted.partition_point(|v| *v <= value) + 1).unwrap() / denominator
+}
 
 pub struct InductiveECOD;
 
@@ -98,6 +106,34 @@ impl<T: Float> Validate for InductiveECODModel<T> {
 mod tests {
     use super::*;
     use crate::types::Persist;
+
+    const EPS: f64 = 1e-12;
+
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < EPS,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    // Tails
+    #[test]
+    fn right_tail_counts_values_ge_plus_one() {
+        let sorted: FloatVector<f64> = vec![1.0, 2.0, 2.0, 3.0];
+        let d = 5.0;
+        assert_close(right_tail(&sorted, 0.0, d), 5.0 / d); // 4 + 1
+        assert_close(right_tail(&sorted, 2.0, d), 4.0 / d); // 2,2,3 + 1
+        assert_close(right_tail(&sorted, 10.0, d), 1.0 / d); // 0 + 1
+    }
+
+    #[test]
+    fn left_tail_counts_values_le_plus_one() {
+        let sorted: FloatVector<f64> = vec![1.0, 2.0, 2.0, 3.0];
+        let d = 5.0;
+        assert_close(left_tail(&sorted, 0.0, d), 1.0 / d); // 0 + 1
+        assert_close(left_tail(&sorted, 2.0, d), 4.0 / d); // 1,2,2 + 1
+        assert_close(left_tail(&sorted, 10.0, d), 5.0 / d); // 4 + 1
+    }
 
     fn fitted() -> InductiveECODModel<f64> {
         InductiveECOD
