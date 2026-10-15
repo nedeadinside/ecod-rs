@@ -51,9 +51,10 @@ impl FromPyObject<'_, '_> for ECODScoreMethod {
             "right" => Ok(Self::RIGHT),
             "left" => Ok(Self::LEFT),
             "auto" => Ok(Self::AUTO),
+            "pyod-max" => Ok(Self::PYODMAX),
             "max" => Ok(Self::MAX),
             other => Err(PyValueError::new_err(format!(
-                "unknown method {other:?}, expected one of: right, left, auto, max"
+                "unknown method {other:?}, expected one of: right, left, auto, pyod-max, max"
             ))),
         }
     }
