@@ -3,7 +3,7 @@ import os
 from collections.abc import Sequence
 from typing import Literal, Self, final
 
-type ECODScoreMethod = Literal["left", "right", "max", "auto"]
+type ECODScoreMethod = Literal["left", "right", "max", "pyod-max", "auto"]
 type ECODProbaMethod = Literal["linear", "unify"]
 
 @final

@@ -8,6 +8,7 @@ pub enum ECODScoreMethod {
     RIGHT,
     LEFT,
     AUTO,
+    PYODMAX,
     MAX,
 }
 
