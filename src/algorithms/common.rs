@@ -1,5 +1,5 @@
 use crate::errors::Error;
-use crate::types::{FloatMatrix, FloatVector};
+use crate::types::{ECODScoreMethod, FloatMatrix, FloatVector};
 
 use num_traits::Float;
 use num_traits::float::TotalOrder;
@@ -56,6 +56,14 @@ pub fn compute_skewness<T: Float>(vector: &FloatVector<T>) -> T {
         return T::zero();
     }
     m3 / (m2 * m2.sqrt())
+}
+
+/// Per-feature skewnesses, zeros for methods that do not pick tails by skewness.
+pub fn compute_skewnesses<T: Float>(x: &FloatMatrix<T>, method: ECODScoreMethod) -> FloatVector<T> {
+    match method {
+        ECODScoreMethod::AUTO | ECODScoreMethod::MAX => x.iter().map(compute_skewness).collect(),
+        _ => vec![T::zero(); x.len()],
+    }
 }
 
 pub fn validate_shape<T: Float>(a: &FloatMatrix<T>, b: &FloatMatrix<T>) -> Result<(), Error> {

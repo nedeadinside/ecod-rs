@@ -1,7 +1,7 @@
 use num_traits::float::{Float, TotalOrder};
 
 use super::common::{
-    compute_score, compute_skewness, compute_threshold, validate_contamination, validate_finity,
+    compute_score, compute_skewnesses, compute_threshold, validate_contamination, validate_finity,
     validate_shape,
 };
 use crate::errors::{CorruptionKind, Error};
@@ -19,6 +19,16 @@ pub fn left_tail<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) ->
     T::from(sorted.partition_point(|v| *v <= value) + 1).unwrap() / denominator
 }
 
+/// Left and right tail probabilities, second search runs on the prefix only
+pub fn tails<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> (T, T) {
+    let le = sorted.partition_point(|v| *v <= value);
+    let lt = sorted[..le].partition_point(|v| *v < value);
+    (
+        T::from(le + 1).unwrap() / denominator,
+        T::from(sorted.len() - lt + 1).unwrap() / denominator,
+    )
+}
+
 /// Outlier scores of x against sorted train features
 fn decision_scores<T: Float>(
     data: &FloatMatrix<T>,
@@ -31,6 +41,14 @@ fn decision_scores<T: Float>(
     let row_count = x.first().map_or(0, |x| x.len());
 
     let mut res: FloatVector<T> = vec![T::zero(); row_count];
+    // Paper max(L, R, A) = A + max(0, L - A, R - A): res holds A, gains hold the differences
+    let gains_len = if method == ECODScoreMethod::MAX {
+        row_count
+    } else {
+        0
+    };
+    let mut left_gain: FloatVector<T> = vec![T::zero(); gains_len];
+    let mut right_gain: FloatVector<T> = vec![T::zero(); gains_len];
 
     for ((col, sorted), &skewness) in x.iter().zip(data).zip(skewnesses) {
         let right = |v: &T| right_tail(sorted, *v, denominator);
@@ -44,10 +62,32 @@ fn decision_scores<T: Float>(
             }
             ECODScoreMethod::AUTO => compute_score(&mut res, col.iter().map(left)),
             // Per-feature auto is either left or right, so min(left, right) covers it
+            ECODScoreMethod::PYODMAX => compute_score(
+                &mut res,
+                col.iter().map(|v| {
+                    let (l, r) = tails(sorted, *v, denominator);
+                    l.min(r)
+                }),
+            ),
+            // Tails are positive: counts start from 1
+            ECODScoreMethod::MAX if skewness >= T::zero() => {
+                for ((s, g), v) in res.iter_mut().zip(&mut left_gain).zip(col) {
+                    let (l, r) = tails(sorted, *v, denominator);
+                    *s = *s - r.ln();
+                    *g = *g + (r / l).ln();
+                }
+            }
             ECODScoreMethod::MAX => {
-                compute_score(&mut res, col.iter().map(|v| left(v).min(right(v))))
+                for ((s, g), v) in res.iter_mut().zip(&mut right_gain).zip(col) {
+                    let (l, r) = tails(sorted, *v, denominator);
+                    *s = *s - l.ln();
+                    *g = *g + (l / r).ln();
+                }
             }
         }
+    }
+    for ((s, &l), &r) in res.iter_mut().zip(&left_gain).zip(&right_gain) {
+        *s = *s + l.max(r).max(T::zero());
     }
     res
 }
@@ -92,7 +132,7 @@ impl<T: Float + TotalOrder> InductiveECODModel<T> {
                 v
             })
             .collect();
-        let skewnesses: Vec<T> = x.iter().map(|v| compute_skewness(v)).collect();
+        let skewnesses = compute_skewnesses(x, method);
         let train_scores = decision_scores(&data, &skewnesses, method, x);
 
         let threshold = compute_threshold(&train_scores, 100.0 * (1.0 - contamination));
