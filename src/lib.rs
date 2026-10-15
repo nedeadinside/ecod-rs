@@ -12,7 +12,7 @@ pub mod types;
 use algorithms::ecod::{ECOD, ECODModel};
 use algorithms::inductive_ecod::{InductiveECOD, InductiveECODModel};
 use errors::Error;
-use types::{ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict};
+use types::{ECODProbaMethod, ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict};
 
 use crate::types::Persist;
 
@@ -31,12 +31,14 @@ impl From<Error> for PyErr {
 /// Python wrapper over InductiveECODModel.
 #[pyclass(name = "InductiveECOD")]
 pub struct PyInductiveECOD {
+    estimator: InductiveECOD,
     model: Option<InductiveECODModel<f64>>,
 }
 
 /// Python wrapper over ECODModel.
 #[pyclass(name = "ECOD")]
 pub struct PyECOD {
+    estimator: ECOD,
     model: Option<ECODModel<f64>>,
 }
 
@@ -57,31 +59,69 @@ impl FromPyObject<'_, '_> for ECODScoreMethod {
     }
 }
 
+impl FromPyObject<'_, '_> for ECODProbaMethod {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
+        let s: PyBackedStr = obj.extract()?;
+        match &*s {
+            "linear" => Ok(Self::LINEAR),
+            "unify" => Ok(Self::UNIFY),
+            other => Err(PyValueError::new_err(format!(
+                "unknown method {other:?}, expected one of: linear, unify"
+            ))),
+        }
+    }
+}
+
 #[pymethods]
 impl PyInductiveECOD {
     #[new]
-    fn new() -> Self {
-        Self { model: None }
+    #[pyo3(signature = (contamination = 0.1, method = ECODScoreMethod::MAX))]
+    fn new(contamination: f64, method: ECODScoreMethod) -> PyResult<Self> {
+        Ok(Self {
+            estimator: InductiveECOD::new(contamination, method)?,
+            model: None,
+        })
     }
 
     fn fit(mut slf: PyRefMut<'_, Self>, x: FloatMatrix<f64>) -> PyResult<PyRefMut<'_, Self>> {
-        let model = slf.py().detach(|| InductiveECOD.fit(&x))?;
+        let estimator = &slf.estimator;
+        let model = slf.py().detach(|| estimator.fit(&x))?;
         slf.model = Some(model);
         Ok(slf)
     }
 
-    #[pyo3(signature = (x, method = ECODScoreMethod::MAX))]
-    fn decision_function(
-        &self,
-        py: Python<'_>,
-        x: FloatMatrix<f64>,
-        method: ECODScoreMethod,
-    ) -> PyResult<FloatVector<f64>> {
+    #[pyo3(signature = (x))]
+    fn decision_function(&self, py: Python<'_>, x: FloatMatrix<f64>) -> PyResult<FloatVector<f64>> {
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.decision_function(&x, method))?)
+        Ok(py.detach(|| model.decision_function(&x))?)
+    }
+
+    #[pyo3(signature = (x))]
+    fn predict(&self, py: Python<'_>, x: FloatMatrix<f64>) -> PyResult<Vec<i32>> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
+        Ok(py.detach(|| model.predict(&x))?)
+    }
+
+    #[pyo3(signature = (x, method = ECODProbaMethod::LINEAR))]
+    fn predict_proba(
+        &self,
+        py: Python<'_>,
+        x: FloatMatrix<f64>,
+        method: ECODProbaMethod,
+    ) -> PyResult<FloatMatrix<f64>> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
+        Ok(py.detach(|| model.predict_proba(&x, method))?)
     }
 
     #[pyo3(signature = (path, *, compression_level = None))]
@@ -96,35 +136,61 @@ impl PyInductiveECOD {
     #[staticmethod]
     fn load(py: Python<'_>, path: PathBuf) -> PyResult<Self> {
         let model: InductiveECODModel<f64> = py.detach(|| InductiveECODModel::load(path))?;
-        Ok(Self { model: Some(model) })
+        Ok(Self {
+            estimator: InductiveECOD::new(model.contamination(), model.method())?,
+            model: Some(model),
+        })
     }
 }
 
 #[pymethods]
 impl PyECOD {
     #[new]
-    fn new() -> Self {
-        Self { model: None }
+    #[pyo3(signature = (contamination = 0.1, method = ECODScoreMethod::MAX))]
+    fn new(contamination: f64, method: ECODScoreMethod) -> PyResult<Self> {
+        Ok(Self {
+            estimator: ECOD::new(contamination, method)?,
+            model: None,
+        })
     }
 
     fn fit(mut slf: PyRefMut<'_, Self>, x: FloatMatrix<f64>) -> PyResult<PyRefMut<'_, Self>> {
-        let model = slf.py().detach(|| ECOD.fit(&x))?;
+        let estimator = &slf.estimator;
+        let model = slf.py().detach(|| estimator.fit(&x))?;
         slf.model = Some(model);
         Ok(slf)
     }
 
-    #[pyo3(signature = (x, method = ECODScoreMethod::MAX))]
-    fn decision_function(
-        &self,
-        py: Python<'_>,
-        x: FloatMatrix<f64>,
-        method: ECODScoreMethod,
-    ) -> PyResult<FloatVector<f64>> {
+    #[pyo3(signature = (x))]
+    fn decision_function(&self, py: Python<'_>, x: FloatMatrix<f64>) -> PyResult<FloatVector<f64>> {
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.decision_function(&x, method))?)
+        Ok(py.detach(|| model.decision_function(&x))?)
+    }
+
+    #[pyo3(signature = (x))]
+    fn predict(&self, py: Python<'_>, x: FloatMatrix<f64>) -> PyResult<Vec<i32>> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
+        Ok(py.detach(|| model.predict(&x))?)
+    }
+
+    #[pyo3(signature = (x, method = ECODProbaMethod::LINEAR))]
+    fn predict_proba(
+        &self,
+        py: Python<'_>,
+        x: FloatMatrix<f64>,
+        method: ECODProbaMethod,
+    ) -> PyResult<FloatMatrix<f64>> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
+        Ok(py.detach(|| model.predict_proba(&x, method))?)
     }
 
     #[pyo3(signature = (path, *, compression_level = None))]
@@ -139,7 +205,10 @@ impl PyECOD {
     #[staticmethod]
     fn load(py: Python<'_>, path: PathBuf) -> PyResult<Self> {
         let model: ECODModel<f64> = py.detach(|| ECODModel::load(path))?;
-        Ok(Self { model: Some(model) })
+        Ok(Self {
+            estimator: ECOD::new(model.contamination(), model.method())?,
+            model: Some(model),
+        })
     }
 }
 

@@ -1,8 +1,13 @@
 use num_traits::float::{Float, TotalOrder};
 
-use super::common::{compute_score, compute_skewness, validate_finity, validate_shape};
+use super::common::{
+    compute_score, compute_skewness, compute_threshold, validate_contamination, validate_finity,
+    validate_shape,
+};
 use crate::errors::{CorruptionKind, Error};
-use crate::types::{ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, Validate};
+use crate::types::{
+    ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, TrainScores, Validate,
+};
 
 /// Right tail probability
 pub fn right_tail<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> T {
@@ -44,13 +49,110 @@ fn merge<T: Float + TotalOrder>(
     res
 }
 
+/// Outlier scores of x against sorted features that already contain x
+fn decision_scores<T: Float>(
+    sorted_data: &FloatMatrix<T>,
+    skewnesses: &FloatVector<T>,
+    method: ECODScoreMethod,
+    x: &FloatMatrix<T>,
+) -> FloatVector<T> {
+    // Consts
+    let denominator = T::from(sorted_data.first().map_or(0, |col| col.len())).unwrap();
+    let row_count = x.first().map_or(0, |x| x.len());
+
+    let mut res: FloatVector<T> = vec![T::zero(); row_count];
+
+    for ((col, sorted), &skewness) in x.iter().zip(sorted_data).zip(skewnesses) {
+        let right = |v: &T| right_tail(sorted, *v, denominator);
+        let left = |v: &T| left_tail(sorted, *v, denominator);
+
+        match method {
+            ECODScoreMethod::RIGHT => compute_score(&mut res, col.iter().map(right)),
+            ECODScoreMethod::LEFT => compute_score(&mut res, col.iter().map(left)),
+            ECODScoreMethod::AUTO if skewness >= T::zero() => {
+                compute_score(&mut res, col.iter().map(right))
+            }
+            ECODScoreMethod::AUTO => compute_score(&mut res, col.iter().map(left)),
+            // Per-feature auto is either left or right, so min(left, right) covers it
+            ECODScoreMethod::MAX => {
+                compute_score(&mut res, col.iter().map(|v| left(v).min(right(v))))
+            }
+        }
+    }
+    res
+}
+
 /// Base struct of ECOD model from original article.
-pub struct ECOD;
+pub struct ECOD {
+    contamination: f64,
+    method: ECODScoreMethod,
+}
+
+impl ECOD {
+    /// Creates estimator, contamination must be in (0, 0.5] as in PyOD
+    pub fn new(contamination: f64, method: ECODScoreMethod) -> Result<Self, Error> {
+        validate_contamination(contamination)?;
+        Ok(ECOD {
+            contamination,
+            method,
+        })
+    }
+}
 
 /// Model struct of ECOD model from original article.
 #[derive(bitcode::Encode, bitcode::Decode)]
 pub struct ECODModel<T> {
     data: FloatMatrix<T>,
+    contamination: f64,
+    method: ECODScoreMethod,
+    threshold: T,
+    train_score: TrainScores<T>,
+}
+
+impl<T: Float + TotalOrder> ECODModel<T> {
+    fn new(x: &FloatMatrix<T>, contamination: f64, method: ECODScoreMethod) -> ECODModel<T> {
+        let data: FloatMatrix<T> = x
+            .iter()
+            .map(|inner| {
+                let mut v = inner.clone();
+                v.sort_by(|a, b| a.total_cmp(b));
+                v
+            })
+            .collect();
+        // Train sample is scored against itself, so data already contains x
+        let skewnesses: FloatVector<T> = x.iter().map(|v| compute_skewness(v)).collect();
+        let train_scores = decision_scores(&data, &skewnesses, method, x);
+
+        let threshold = compute_threshold(&train_scores, 100.0 * (1.0 - contamination));
+
+        ECODModel {
+            data,
+            contamination,
+            method,
+            threshold,
+            train_score: TrainScores::new(train_scores),
+        }
+    }
+
+    /// Scores x against train data merged with x itself
+    fn merged_scores(&self, x: &FloatMatrix<T>) -> Result<FloatVector<T>, Error> {
+        validate_shape(&self.data, x)?;
+        validate_finity(x)?;
+
+        let merged = merge(&self.data, x);
+        let skewnesses: FloatVector<T> = merged.iter().map(|v| compute_skewness(v)).collect();
+        Ok(decision_scores(&merged, &skewnesses, self.method, x))
+    }
+}
+
+impl<T> ECODModel<T> {
+    pub fn contamination(&self) -> f64 {
+        self.contamination
+    }
+
+    pub fn method(&self) -> ECODScoreMethod {
+        self.method
+    }
 }
 
 impl<T: Float + TotalOrder> Fit<T> for ECOD {
@@ -59,58 +161,21 @@ impl<T: Float + TotalOrder> Fit<T> for ECOD {
     fn fit(&self, x: &FloatMatrix<T>) -> Result<Self::Model, Error> {
         validate_finity(x)?;
 
-        Ok(ECODModel {
-            data: x
-                .iter()
-                .map(|inner| {
-                    let mut v = inner.clone();
-                    v.sort_by(|a, b| a.total_cmp(b));
-                    v
-                })
-                .collect(),
-        })
+        Ok(ECODModel::new(x, self.contamination, self.method))
     }
 }
 
 impl<T: Float + TotalOrder> Predict<T> for ECODModel<T> {
-    fn decision_function(
+    fn internal_decision_function(
         &self,
         x: &FloatMatrix<T>,
-        method: ECODScoreMethod,
-    ) -> Result<FloatVector<T>, Error> {
-        validate_shape(&self.data, x)?;
-        validate_finity(x)?;
+    ) -> Result<(FloatVector<T>, TrainScores<T>, T), Error> {
+        let res = self.merged_scores(x)?;
+        Ok((res, self.train_score, self.threshold))
+    }
 
-        let merged = merge(&self.data, x);
-        let skewnesses: Vec<T> = merged
-            .iter()
-            .map(|vector| compute_skewness(vector))
-            .collect();
-
-        // Consts
-        let denominator = T::from(merged.first().unwrap().len()).unwrap();
-        let row_count = x.first().map_or(0, |x| x.len());
-
-        let mut res: FloatVector<T> = vec![T::zero(); row_count];
-
-        for ((col, sorted), &skewness) in x.iter().zip(&merged).zip(&skewnesses) {
-            let right = |v: &T| right_tail(sorted, *v, denominator);
-            let left = |v: &T| left_tail(sorted, *v, denominator);
-
-            match method {
-                ECODScoreMethod::RIGHT => compute_score(&mut res, col.iter().map(right)),
-                ECODScoreMethod::LEFT => compute_score(&mut res, col.iter().map(left)),
-                ECODScoreMethod::AUTO if skewness >= T::zero() => {
-                    compute_score(&mut res, col.iter().map(right))
-                }
-                ECODScoreMethod::AUTO => compute_score(&mut res, col.iter().map(left)),
-                // Per-feature auto is either left or right, so min(left, right) covers it
-                ECODScoreMethod::MAX => {
-                    compute_score(&mut res, col.iter().map(|v| left(v).min(right(v))))
-                }
-            }
-        }
-        Ok(res)
+    fn decision_function(&self, x: &FloatMatrix<T>) -> Result<FloatVector<T>, Error> {
+        self.merged_scores(x)
     }
 }
 
@@ -191,8 +256,21 @@ mod tests {
 
     // Model
     fn fitted() -> ECODModel<f64> {
-        ECOD.fit(&vec![vec![3.0, 1.0, 2.0], vec![-1.0, 5.0, 0.5]])
+        ECOD::new(0.1, ECODScoreMethod::MAX)
             .unwrap()
+            .fit(&vec![vec![3.0, 1.0, 2.0], vec![-1.0, 5.0, 0.5]])
+            .unwrap()
+    }
+
+    #[test]
+    fn new_validates_contamination_range() {
+        for value in [0.0, -0.1, 0.51, f64::NAN] {
+            assert!(matches!(
+                ECOD::new(value, ECODScoreMethod::MAX),
+                Err(Error::InvalidContamination { .. })
+            ));
+        }
+        assert!(ECOD::new(0.5, ECODScoreMethod::MAX).is_ok());
     }
 
     fn assert_corrupted(model: ECODModel<f64>, kind: CorruptionKind) {
