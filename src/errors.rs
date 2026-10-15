@@ -31,6 +31,11 @@ pub enum Error {
     Compress,
     /// Error while decompressing
     Decompress,
+    /// Contamination is outside (0, 0.5].
+    InvalidContamination {
+        /// Passed contamination.
+        value: f64,
+    },
 }
 
 /// Invariant broken in a loaded model.
@@ -65,6 +70,9 @@ impl std::fmt::Display for Error {
             Error::CorruptedModel { kind } => write!(f, "model file is corrupted: {kind}"),
             Error::Compress => write!(f, "failed to compress model bytes"),
             Error::Decompress => write!(f, "failed to decompress model bytes"),
+            Error::InvalidContamination { value } => {
+                write!(f, "contamination must be in (0, 0.5], got {value}")
+            }
         }
     }
 }

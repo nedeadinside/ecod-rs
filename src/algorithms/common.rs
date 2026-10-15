@@ -2,6 +2,7 @@ use crate::errors::Error;
 use crate::types::{FloatMatrix, FloatVector};
 
 use num_traits::Float;
+use num_traits::float::TotalOrder;
 
 /// Computes the score as the negative sum of natural logarithms of the input values.
 pub fn compute_score<T: Float>(scores: &mut FloatVector<T>, probs: impl Iterator<Item = T>) {
@@ -12,6 +13,30 @@ pub fn compute_score<T: Float>(scores: &mut FloatVector<T>, probs: impl Iterator
             *score = *score - p.ln();
         }
     }
+}
+
+pub fn compute_threshold<T: Float + TotalOrder>(scores: &FloatVector<T>, pct: f64) -> T {
+    // Linear interpolation between closest ranks, as numpy.percentile default
+    let mut sorted = scores.clone();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+
+    let pos = (sorted.len() - 1) as f64 * pct / 100.0;
+    let lo = pos.floor() as usize;
+    let hi = (lo + 1).min(sorted.len() - 1);
+    let frac = T::from(pos - lo as f64).unwrap();
+
+    sorted[lo] + (sorted[hi] - sorted[lo]) * frac
+}
+
+/// Validates contamination is in (0, 0.5] as in PyOD.
+pub fn validate_contamination(contamination: f64) -> Result<(), Error> {
+    // Negated check also rejects NaN
+    if !(contamination > 0.0 && contamination <= 0.5) {
+        return Err(Error::InvalidContamination {
+            value: contamination,
+        });
+    }
+    Ok(())
 }
 
 /// Computes skewness of the given vector.
