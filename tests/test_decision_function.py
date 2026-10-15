@@ -26,8 +26,8 @@ def test_default_method_is_max(data: np.ndarray, model_cls: type[InductiveECOD |
     :param model_cls: Model class under test.
     """
     x = data.tolist()
-    model = model_cls().fit(x)
-    assert model.decision_function(x) == model.decision_function(x, "max")
+    default = model_cls().fit(x).decision_function(x)
+    assert default == model_cls(method="max").fit(x).decision_function(x)
 
 
 def test_accepts_numpy(data: np.ndarray, model_cls: type[InductiveECOD | ECOD]):
