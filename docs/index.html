@@ -1,0 +1,236 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ecod-rs benchmark</title>
+<style>table { border-collapse: collapse; } th, td { border: 1px solid; }</style>
+<h1>ecod-rs benchmark</h1>
+<p><a href="https://github.com/nedeadinside/ecod-rs">ecod-rs</a> is a Rust implementation of the ECOD outlier detector
+(<a href="https://arxiv.org/abs/2201.00382">Li et al., 2022</a>) with Python bindings.
+Here it is compared with ECOD from <a href="https://github.com/yzhao062/pyod">PyOD</a>.</p>
+<p>Data is random normal noise of several sizes (rows x features) and the classical datasets from
+<a href="https://github.com/Minqi824/ADBench">ADBench</a>. Each dataset is split 60/40 into train and test.
+Every measurement runs in a fresh single-threaded process, times are taken over 5 runs.</p>
+<p>What is measured:</p>
+<ul>
+<li>fit: training, including conversion from numpy;</li>
+<li>score: scoring the test part with a fitted model;</li>
+<li>pipeline: fit and score together;</li>
+<li>convert: passing data into ecod-rs up to input validation;</li>
+<li>save and load: writing and reading a model file. The default and compressed variants are
+zstd levels 3 and 19 for ecod-rs, joblib levels 0 and 3 for PyOD.</li>
+</ul>
+
+<h2>Summary</h2>
+<p>How many times ecod-rs is faster than pyod-ECOD: median over all 53 datasets, the range in brackets. Below 1 means slower.</p>
+<table>
+<tr><th rowspan="2">phase</th><th rowspan="2">variant</th><th colspan="2">times faster than pyod-ECOD</th></tr>
+<tr><th>ECOD</th><th>InductiveECOD</th></tr>
+<tr><td>fit</td><td></td><td>×2.0 (0.9 to 11.6)</td><td>×2.1 (0.9 to 11.5)</td></tr>
+<tr><td>score</td><td></td><td>×4.5 (1.9 to 12.3)</td><td>×5.3 (2.5 to 16.0)</td></tr>
+<tr><td>pipeline</td><td></td><td>×3.1 (1.3 to 10.8)</td><td>×3.4 (1.5 to 11.8)</td></tr>
+<tr><td>save</td><td>default</td><td>×3.3 (0.7 to 6.5)</td><td>×3.4 (0.7 to 6.4)</td></tr>
+<tr><td>save</td><td>compressed</td><td>×2.2 (0.5 to 31.7)</td><td>×2.0 (0.5 to 31.8)</td></tr>
+<tr><td>load</td><td>default</td><td>×4.3 (0.5 to 8.4)</td><td>×4.2 (0.5 to 9.0)</td></tr>
+<tr><td>load</td><td>compressed</td><td>×30.9 (11.4 to 115.0)</td><td>×31.2 (10.5 to 112.0)</td></tr>
+</table>
+<h2>Speed</h2>
+<p>Median time in seconds. In brackets, how many times faster than pyod-ECOD. PyOD has no separate convert step.</p>
+<table>
+<tr><th rowspan="2">dataset</th><th colspan="3">fit, s</th><th colspan="3">score, s</th><th colspan="3">pipeline, s</th><th colspan="2">convert, s</th></tr>
+<tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th></tr>
+<tr><td>1000x10</td><td>0.000665 (×2.2)</td><td>0.0004838 (×3.1)</td><td>0.001496</td><td>0.0003634 (×4.9)</td><td>0.0002909 (×6.1)</td><td>0.001787</td><td>0.0008375 (×3.4)</td><td>0.0007283 (×4.0)</td><td>0.002887</td><td>0.0001594</td><td>0.0001562</td></tr>
+<tr><td>10000x10</td><td>0.005568 (×1.5)</td><td>0.005453 (×1.5)</td><td>0.008432</td><td>0.004435 (×3.1)</td><td>0.003295 (×4.2)</td><td>0.01379</td><td>0.009838 (×2.4)</td><td>0.008704 (×2.8)</td><td>0.02395</td><td>0.001352</td><td>0.001388</td></tr>
+<tr><td>100000x10</td><td>0.08938 (×1.2)</td><td>0.08817 (×1.2)</td><td>0.1083</td><td>0.06953 (×2.8)</td><td>0.05011 (×3.8)</td><td>0.1916</td><td>0.1569 (×1.9)</td><td>0.1385 (×2.2)</td><td>0.3037</td><td>0.02262</td><td>0.02357</td></tr>
+<tr><td>1000000x10</td><td>1.676 (×0.9)</td><td>1.68 (×0.9)</td><td>1.51</td><td>1.356 (×1.9)</td><td>1.047 (×2.5)</td><td>2.588</td><td>3.06 (×1.3)</td><td>2.752 (×1.5)</td><td>4.11</td><td>0.2563</td><td>0.2526</td></tr>
+<tr><td>10000x100</td><td>0.06666 (×1.3)</td><td>0.06675 (×1.3)</td><td>0.08845</td><td>0.05235 (×2.8)</td><td>0.03665 (×4.0)</td><td>0.1458</td><td>0.1196 (×2.0)</td><td>0.1052 (×2.2)</td><td>0.2347</td><td>0.02323</td><td>0.02354</td></tr>
+<tr><td>100000x100</td><td>0.9139 (×1.4)</td><td>0.9095 (×1.4)</td><td>1.244</td><td>0.684 (×3.2)</td><td>0.5144 (×4.3)</td><td>2.202</td><td>1.639 (×2.1)</td><td>1.442 (×2.4)</td><td>3.464</td><td>0.2561</td><td>0.2569</td></tr>
+</table>
+<details>
+<summary>ADBench datasets</summary>
+<table>
+<tr><th rowspan="2">dataset</th><th colspan="3">fit, s</th><th colspan="3">score, s</th><th colspan="3">pipeline, s</th><th colspan="2">convert, s</th></tr>
+<tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th></tr>
+<tr><td>1_ALOI</td><td>0.08588 (×1.9)</td><td>0.08621 (×1.9)</td><td>0.1656</td><td>0.06899 (×4.4)</td><td>0.05491 (×5.5)</td><td>0.3018</td><td>0.1543 (×3.1)</td><td>0.141 (×3.4)</td><td>0.4742</td><td>0.02801</td><td>0.02863</td></tr>
+<tr><td>2_annthyroid</td><td>0.002148 (×2.0)</td><td>0.002125 (×2.0)</td><td>0.004324</td><td>0.001552 (×4.3)</td><td>0.001361 (×4.9)</td><td>0.00667</td><td>0.00364 (×3.0)</td><td>0.003402 (×3.2)</td><td>0.01103</td><td>0.0005892</td><td>0.0005878</td></tr>
+<tr><td>3_backdoor</td><td>1.293 (×2.1)</td><td>1.284 (×2.1)</td><td>2.733</td><td>0.906 (×5.2)</td><td>0.7704 (×6.2)</td><td>4.738</td><td>2.227 (×3.3)</td><td>2.074 (×3.6)</td><td>7.38</td><td>0.4708</td><td>0.47</td></tr>
+<tr><td>4_breastw</td><td>0.0002604 (×5.4)</td><td>0.0002638 (×5.4)</td><td>0.001414</td><td>0.0002055 (×7.7)</td><td>0.0001812 (×8.7)</td><td>0.001575</td><td>0.0004342 (×6.0)</td><td>0.0004066 (×6.4)</td><td>0.002615</td><td>0.0001044</td><td>0.0001069</td></tr>
+<tr><td>5_campaign</td><td>0.1475 (×2.2)</td><td>0.1472 (×2.2)</td><td>0.3206</td><td>0.1077 (×5.4)</td><td>0.09392 (×6.2)</td><td>0.5812</td><td>0.2561 (×3.6)</td><td>0.2418 (×3.8)</td><td>0.9205</td><td>0.05466</td><td>0.05488</td></tr>
+<tr><td>6_cardio</td><td>0.001708 (×2.3)</td><td>0.001671 (×2.4)</td><td>0.003957</td><td>0.001259 (×4.6)</td><td>0.001079 (×5.3)</td><td>0.005737</td><td>0.002885 (×3.3)</td><td>0.002701 (×3.5)</td><td>0.009575</td><td>0.000543</td><td>0.000551</td></tr>
+<tr><td>7_Cardiotocography</td><td>0.001931 (×2.2)</td><td>0.001947 (×2.1)</td><td>0.004174</td><td>0.001447 (×4.5)</td><td>0.001261 (×5.2)</td><td>0.006534</td><td>0.00334 (×3.2)</td><td>0.003114 (×3.4)</td><td>0.01064</td><td>0.0006513</td><td>0.0006287</td></tr>
+<tr><td>8_celeba</td><td>0.5244 (×1.8)</td><td>0.521 (×1.8)</td><td>0.9345</td><td>0.3665 (×4.5)</td><td>0.3168 (×5.2)</td><td>1.656</td><td>0.8871 (×2.9)</td><td>0.8323 (×3.1)</td><td>2.58</td><td>0.1898</td><td>0.1967</td></tr>
+<tr><td>9_census</td><td>11.56 (×2.1)</td><td>11.43 (×2.1)</td><td>24.49</td><td>8.114 (×5.3)</td><td>6.728 (×6.4)</td><td>43.05</td><td>19.62 (×4.2)</td><td>18.23 (×4.5)</td><td>82.55</td><td>3.734</td><td>3.685</td></tr>
+<tr><td>10_cover</td><td>0.2606 (×1.4)</td><td>0.2599 (×1.4)</td><td>0.3588</td><td>0.182 (×3.5)</td><td>0.1633 (×4.0)</td><td>0.6456</td><td>0.4436 (×2.3)</td><td>0.4268 (×2.4)</td><td>1.02</td><td>0.06355</td><td>0.0603</td></tr>
+<tr><td>11_donors</td><td>0.4379 (×1.8)</td><td>0.4352 (×1.8)</td><td>0.7737</td><td>0.3067 (×5.5)</td><td>0.2718 (×6.2)</td><td>1.695</td><td>0.7629 (×3.2)</td><td>0.709 (×3.5)</td><td>2.468</td><td>0.1576</td><td>0.1585</td></tr>
+<tr><td>12_fault</td><td>0.002387 (×1.9)</td><td>0.002401 (×1.9)</td><td>0.004648</td><td>0.001801 (×4.1)</td><td>0.001514 (×4.9)</td><td>0.007383</td><td>0.004148 (×2.7)</td><td>0.003815 (×3.0)</td><td>0.01136</td><td>0.0007563</td><td>0.0007346</td></tr>
+<tr><td>13_fraud</td><td>0.9711 (×1.3)</td><td>0.9748 (×1.3)</td><td>1.252</td><td>0.7871 (×2.8)</td><td>0.5672 (×3.8)</td><td>2.171</td><td>1.763 (×2.0)</td><td>1.566 (×2.2)</td><td>3.439</td><td>0.2059</td><td>0.2069</td></tr>
+<tr><td>14_glass</td><td>0.00008599 (×11.5)</td><td>0.00008611 (×11.5)</td><td>0.0009895</td><td>0.00007075 (×11.9)</td><td>0.00005256 (×16.0)</td><td>0.0008397</td><td>0.0001416 (×10.3)</td><td>0.0001242 (×11.7)</td><td>0.001453</td><td>0.00004382</td><td>0.00004739</td></tr>
+<tr><td>15_Hepatitis</td><td>0.00008834 (×11.2)</td><td>0.0001 (×9.9)</td><td>0.0009859</td><td>0.00007627 (×10.9)</td><td>0.00006788 (×12.3)</td><td>0.0008338</td><td>0.0001575 (×9.6)</td><td>0.0001331 (×11.3)</td><td>0.001506</td><td>0.00005083</td><td>0.00005197</td></tr>
+<tr><td>16_http</td><td>0.1611 (×1.6)</td><td>0.1596 (×1.6)</td><td>0.2593</td><td>0.1339 (×3.5)</td><td>0.1025 (×4.6)</td><td>0.4677</td><td>0.2914 (×2.6)</td><td>0.2631 (×2.8)</td><td>0.7444</td><td>0.03799</td><td>0.03534</td></tr>
+<tr><td>17_InternetAds</td><td>0.1519 (×2.4)</td><td>0.1501 (×2.4)</td><td>0.3626</td><td>0.1058 (×6.0)</td><td>0.09401 (×6.8)</td><td>0.6367</td><td>0.254 (×4.0)</td><td>0.244 (×4.1)</td><td>1.012</td><td>0.06611</td><td>0.06526</td></tr>
+<tr><td>18_Ionosphere</td><td>0.0004843 (×2.9)</td><td>0.0004861 (×2.9)</td><td>0.001415</td><td>0.000396 (×4.3)</td><td>0.0002901 (×5.9)</td><td>0.001714</td><td>0.0008566 (×3.2)</td><td>0.0007536 (×3.6)</td><td>0.002724</td><td>0.0001773</td><td>0.0001818</td></tr>
+<tr><td>19_landsat</td><td>0.01127 (×1.6)</td><td>0.01112 (×1.6)</td><td>0.01764</td><td>0.008729 (×3.9)</td><td>0.007022 (×4.8)</td><td>0.03404</td><td>0.01957 (×2.9)</td><td>0.01801 (×3.2)</td><td>0.05701</td><td>0.003854</td><td>0.003656</td></tr>
+<tr><td>20_letter</td><td>0.00208 (×2.2)</td><td>0.002096 (×2.2)</td><td>0.004613</td><td>0.001579 (×4.2)</td><td>0.001402 (×4.8)</td><td>0.006687</td><td>0.003662 (×3.1)</td><td>0.003508 (×3.2)</td><td>0.01118</td><td>0.0007267</td><td>0.0007461</td></tr>
+<tr><td>21_Lymphography</td><td>0.0001221 (×8.6)</td><td>0.0001198 (×8.8)</td><td>0.001049</td><td>0.0001092 (×9.2)</td><td>0.00009743 (×10.3)</td><td>0.001</td><td>0.0002181 (×8.2)</td><td>0.0002011 (×8.9)</td><td>0.001788</td><td>0.00006363</td><td>0.00006252</td></tr>
+<tr><td>22_magic.gamma</td><td>0.01154 (×1.4)</td><td>0.01211 (×1.4)</td><td>0.01671</td><td>0.009059 (×3.2)</td><td>0.007071 (×4.1)</td><td>0.02904</td><td>0.02053 (×2.5)</td><td>0.0193 (×2.6)</td><td>0.05085</td><td>0.002627</td><td>0.002668</td></tr>
+<tr><td>23_mammography</td><td>0.003301 (×2.3)</td><td>0.003334 (×2.3)</td><td>0.007749</td><td>0.002561 (×4.8)</td><td>0.002174 (×5.7)</td><td>0.0123</td><td>0.00588 (×3.5)</td><td>0.005347 (×3.8)</td><td>0.02051</td><td>0.0008973</td><td>0.0009112</td></tr>
+<tr><td>24_mnist</td><td>0.03861 (×1.8)</td><td>0.03925 (×1.7)</td><td>0.06846</td><td>0.02703 (×4.6)</td><td>0.02489 (×4.9)</td><td>0.1231</td><td>0.06718 (×3.0)</td><td>0.06443 (×3.1)</td><td>0.1987</td><td>0.01532</td><td>0.01496</td></tr>
+<tr><td>25_musk</td><td>0.02553 (×1.4)</td><td>0.02641 (×1.4)</td><td>0.03669</td><td>0.0194 (×3.8)</td><td>0.01543 (×4.8)</td><td>0.07462</td><td>0.04722 (×2.7)</td><td>0.04158 (×3.0)</td><td>0.1253</td><td>0.009827</td><td>0.0109</td></tr>
+<tr><td>26_optdigits</td><td>0.01595 (×1.8)</td><td>0.01664 (×1.7)</td><td>0.02843</td><td>0.0112 (×4.8)</td><td>0.01013 (×5.3)</td><td>0.05413</td><td>0.0266 (×3.4)</td><td>0.02825 (×3.2)</td><td>0.0911</td><td>0.006018</td><td>0.006052</td></tr>
+<tr><td>27_PageBlocks</td><td>0.002741 (×2.0)</td><td>0.002665 (×2.1)</td><td>0.005487</td><td>0.00204 (×4.3)</td><td>0.001643 (×5.3)</td><td>0.008761</td><td>0.004654 (×2.9)</td><td>0.004269 (×3.2)</td><td>0.01356</td><td>0.0007443</td><td>0.0007964</td></tr>
+<tr><td>28_pendigits</td><td>0.005559 (×1.8)</td><td>0.005811 (×1.7)</td><td>0.009856</td><td>0.004378 (×3.6)</td><td>0.003401 (×4.6)</td><td>0.01564</td><td>0.009901 (×2.8)</td><td>0.008831 (×3.1)</td><td>0.02771</td><td>0.001502</td><td>0.00153</td></tr>
+<tr><td>29_Pima</td><td>0.0002942 (×4.5)</td><td>0.0002849 (×4.6)</td><td>0.001318</td><td>0.0002238 (×6.4)</td><td>0.0001781 (×8.0)</td><td>0.001423</td><td>0.0004903 (×5.0)</td><td>0.0004313 (×5.6)</td><td>0.00243</td><td>0.0001055</td><td>0.0001034</td></tr>
+<tr><td>30_satellite</td><td>0.0111 (×1.6)</td><td>0.01119 (×1.6)</td><td>0.01766</td><td>0.008764 (×3.7)</td><td>0.006866 (×4.7)</td><td>0.03239</td><td>0.01912 (×2.9)</td><td>0.01883 (×3.0)</td><td>0.05594</td><td>0.003576</td><td>0.003591</td></tr>
+<tr><td>31_satimage-2</td><td>0.0103 (×1.5)</td><td>0.0103 (×1.5)</td><td>0.01566</td><td>0.007178 (×3.9)</td><td>0.006229 (×4.5)</td><td>0.02815</td><td>0.01731 (×3.0)</td><td>0.01574 (×3.3)</td><td>0.05137</td><td>0.003239</td><td>0.003216</td></tr>
+<tr><td>32_shuttle</td><td>0.02548 (×1.8)</td><td>0.02549 (×1.8)</td><td>0.04561</td><td>0.01806 (×4.7)</td><td>0.01521 (×5.6)</td><td>0.08539</td><td>0.04333 (×3.3)</td><td>0.03965 (×3.7)</td><td>0.1449</td><td>0.00783</td><td>0.008672</td></tr>
+<tr><td>33_skin</td><td>0.06049 (×1.3)</td><td>0.06009 (×1.4)</td><td>0.08139</td><td>0.04584 (×3.2)</td><td>0.03796 (×3.9)</td><td>0.1479</td><td>0.1046 (×2.3)</td><td>0.09631 (×2.5)</td><td>0.2374</td><td>0.01452</td><td>0.0144</td></tr>
+<tr><td>34_smtp</td><td>0.01902 (×1.6)</td><td>0.01954 (×1.6)</td><td>0.03089</td><td>0.01391 (×4.1)</td><td>0.01231 (×4.6)</td><td>0.05661</td><td>0.03261 (×2.9)</td><td>0.0307 (×3.1)</td><td>0.0949</td><td>0.004662</td><td>0.004544</td></tr>
+<tr><td>35_SpamBase</td><td>0.01102 (×2.4)</td><td>0.0111 (×2.3)</td><td>0.026</td><td>0.007761 (×6.3)</td><td>0.006968 (×7.0)</td><td>0.04871</td><td>0.01856 (×4.2)</td><td>0.01719 (×4.6)</td><td>0.07861</td><td>0.003812</td><td>0.003723</td></tr>
+<tr><td>36_speech</td><td>0.08446 (×1.3)</td><td>0.08515 (×1.3)</td><td>0.1067</td><td>0.06624 (×3.2)</td><td>0.05198 (×4.1)</td><td>0.215</td><td>0.151 (×2.2)</td><td>0.1323 (×2.6)</td><td>0.3394</td><td>0.03077</td><td>0.03016</td></tr>
+<tr><td>37_Stamps</td><td>0.0001517 (×7.1)</td><td>0.0001505 (×7.1)</td><td>0.001076</td><td>0.000127 (×8.0)</td><td>0.00009058 (×11.2)</td><td>0.001013</td><td>0.0002585 (×7.0)</td><td>0.000224 (×8.0)</td><td>0.001803</td><td>0.00006216</td><td>0.00006383</td></tr>
+<tr><td>38_thyroid</td><td>0.001093 (×2.6)</td><td>0.001088 (×2.6)</td><td>0.002801</td><td>0.0007938 (×5.1)</td><td>0.0006915 (×5.8)</td><td>0.004035</td><td>0.00185 (×3.5)</td><td>0.001721 (×3.8)</td><td>0.006467</td><td>0.0003129</td><td>0.0003318</td></tr>
+<tr><td>39_vertebral</td><td>0.00008388 (×11.6)</td><td>0.00008532 (×11.4)</td><td>0.0009765</td><td>0.00007017 (×12.1)</td><td>0.00005397 (×15.8)</td><td>0.0008521</td><td>0.0001382 (×10.8)</td><td>0.000126 (×11.8)</td><td>0.00149</td><td>0.0000446</td><td>0.00004236</td></tr>
+<tr><td>40_vowels</td><td>0.000817 (×2.4)</td><td>0.0008217 (×2.4)</td><td>0.001983</td><td>0.0006554 (×4.0)</td><td>0.0004953 (×5.3)</td><td>0.002605</td><td>0.001455 (×2.9)</td><td>0.001268 (×3.4)</td><td>0.004256</td><td>0.0002581</td><td>0.0002511</td></tr>
+<tr><td>41_Waveform</td><td>0.003534 (×1.7)</td><td>0.003574 (×1.7)</td><td>0.006013</td><td>0.002727 (×3.6)</td><td>0.002155 (×4.5)</td><td>0.009782</td><td>0.006223 (×2.6)</td><td>0.005651 (×2.9)</td><td>0.01642</td><td>0.001002</td><td>0.001011</td></tr>
+<tr><td>42_WBC</td><td>0.00009481 (×10.8)</td><td>0.00009709 (×10.5)</td><td>0.001022</td><td>0.00007527 (×12.3)</td><td>0.0000636 (×14.6)</td><td>0.0009283</td><td>0.0001644 (×10.1)</td><td>0.0001501 (×11.1)</td><td>0.001665</td><td>0.00004955</td><td>0.00005284</td></tr>
+<tr><td>43_WDBC</td><td>0.0004729 (×3.1)</td><td>0.0004746 (×3.1)</td><td>0.001475</td><td>0.000388 (×4.5)</td><td>0.0002782 (×6.3)</td><td>0.001757</td><td>0.0008418 (×3.5)</td><td>0.000737 (×4.0)</td><td>0.002976</td><td>0.0001758</td><td>0.0001817</td></tr>
+<tr><td>44_Wilt</td><td>0.001249 (×2.3)</td><td>0.001252 (×2.3)</td><td>0.002927</td><td>0.000977 (×4.2)</td><td>0.0007502 (×5.5)</td><td>0.0041</td><td>0.002206 (×3.1)</td><td>0.001939 (×3.5)</td><td>0.006766</td><td>0.000341</td><td>0.0003371</td></tr>
+<tr><td>45_wine</td><td>0.00009127 (×10.7)</td><td>0.00009376 (×10.5)</td><td>0.0009805</td><td>0.00007781 (×11.4)</td><td>0.00005903 (×15.0)</td><td>0.0008846</td><td>0.0001559 (×9.6)</td><td>0.0001322 (×11.4)</td><td>0.001504</td><td>0.0000473</td><td>0.00004605</td></tr>
+<tr><td>46_WPBC</td><td>0.0002774 (×4.4)</td><td>0.0002708 (×4.5)</td><td>0.001211</td><td>0.0002327 (×5.4)</td><td>0.0001667 (×7.6)</td><td>0.001268</td><td>0.0004942 (×4.5)</td><td>0.0004209 (×5.2)</td><td>0.002201</td><td>0.0001152</td><td>0.0001163</td></tr>
+<tr><td>47_yeast</td><td>0.0005287 (×3.6)</td><td>0.0005294 (×3.6)</td><td>0.00188</td><td>0.000401 (×6.0)</td><td>0.0003359 (×7.2)</td><td>0.002412</td><td>0.000912 (×4.4)</td><td>0.0008237 (×4.8)</td><td>0.003979</td><td>0.0001787</td><td>0.0002764</td></tr>
+</table>
+</details>
+<h2>Memory</h2>
+<p>How much the process memory peak grew during the run, in MB.</p>
+<table>
+<tr><th rowspan="2">dataset</th><th colspan="3">fit, MB</th><th colspan="3">score, MB</th></tr>
+<tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
+<tr><td>1000x10</td><td>0.3164</td><td>0.3164</td><td>49.95</td><td>0.04688</td><td>0.007812</td><td>0.3555</td></tr>
+<tr><td>10000x10</td><td>2.809</td><td>3.223</td><td>52.78</td><td>0.8906</td><td>0.4961</td><td>3.812</td></tr>
+<tr><td>100000x10</td><td>32.93</td><td>33.41</td><td>73.35</td><td>13.97</td><td>11.75</td><td>45.73</td></tr>
+<tr><td>1000000x10</td><td>334.4</td><td>334.5</td><td>278.9</td><td>260.3</td><td>193.3</td><td>406.5</td></tr>
+<tr><td>10000x100</td><td>31.96</td><td>31.49</td><td>73.32</td><td>14.95</td><td>10.61</td><td>38.04</td></tr>
+<tr><td>100000x100</td><td>322.3</td><td>322.1</td><td>279.8</td><td>165.5</td><td>122.9</td><td>413</td></tr>
+</table>
+<details>
+<summary>ADBench datasets</summary>
+<table>
+<tr><th rowspan="2">dataset</th><th colspan="3">fit, MB</th><th colspan="3">score, MB</th></tr>
+<tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
+<tr><td>1_ALOI</td><td>26.38</td><td>26.96</td><td>64.17</td><td>20.8</td><td>15.05</td><td>60.89</td></tr>
+<tr><td>2_annthyroid</td><td>0.7891</td><td>0.7891</td><td>49.88</td><td>0.1133</td><td>0</td><td>2.664</td></tr>
+<tr><td>3_backdoor</td><td>599.9</td><td>599.5</td><td>476.9</td><td>312.9</td><td>229.1</td><td>770.6</td></tr>
+<tr><td>4_breastw</td><td>0.1055</td><td>0.1055</td><td>49.79</td><td>0.003906</td><td>0</td><td>0</td></tr>
+<tr><td>5_campaign</td><td>50.69</td><td>50.73</td><td>78.36</td><td>41.07</td><td>30.93</td><td>116.6</td></tr>
+<tr><td>6_cardio</td><td>0.6992</td><td>0.6992</td><td>49.88</td><td>0.1094</td><td>0</td><td>2.449</td></tr>
+<tr><td>7_Cardiotocography</td><td>0.8945</td><td>0.8945</td><td>50.1</td><td>0.1836</td><td>0</td><td>2.719</td></tr>
+<tr><td>8_celeba</td><td>253.4</td><td>253.5</td><td>229.3</td><td>131.5</td><td>97.42</td><td>327.6</td></tr>
+<tr><td>9_census</td><td>4808</td><td>4808</td><td>3476</td><td>2517</td><td>1836</td><td>6163</td></tr>
+<tr><td>10_cover</td><td>79.99</td><td>79.86</td><td>98.46</td><td>48.45</td><td>36.92</td><td>130.4</td></tr>
+<tr><td>11_donors</td><td>181.5</td><td>181.6</td><td>163.9</td><td>105.8</td><td>81.22</td><td>283.2</td></tr>
+<tr><td>12_fault</td><td>0.957</td><td>0.957</td><td>49.97</td><td>0.1836</td><td>0.007812</td><td>3.027</td></tr>
+<tr><td>13_fraud</td><td>267.5</td><td>267</td><td>239.9</td><td>137.6</td><td>103.2</td><td>342.8</td></tr>
+<tr><td>14_glass</td><td>0.01953</td><td>0.01953</td><td>49.71</td><td>0.007812</td><td>0.007812</td><td>0</td></tr>
+<tr><td>15_Hepatitis</td><td>0.03125</td><td>0.03125</td><td>49.77</td><td>0.007812</td><td>0.007812</td><td>0</td></tr>
+<tr><td>16_http</td><td>36.27</td><td>36.22</td><td>62.57</td><td>29.73</td><td>26.57</td><td>74.38</td></tr>
+<tr><td>17_InternetAds</td><td>60.83</td><td>60.77</td><td>85.25</td><td>50.02</td><td>36.3</td><td>139.9</td></tr>
+<tr><td>18_Ionosphere</td><td>0.1992</td><td>0.1992</td><td>49.65</td><td>0</td><td>0</td><td>0.4531</td></tr>
+<tr><td>19_landsat</td><td>3.594</td><td>3.949</td><td>52.23</td><td>2.242</td><td>0.7188</td><td>10.46</td></tr>
+<tr><td>20_letter</td><td>0.9648</td><td>0.9648</td><td>50.09</td><td>0.2227</td><td>0</td><td>2.969</td></tr>
+<tr><td>21_Lymphography</td><td>0.04297</td><td>0.04297</td><td>49.79</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>22_magic.gamma</td><td>3.277</td><td>2.871</td><td>51.96</td><td>1.789</td><td>1.035</td><td>7.254</td></tr>
+<tr><td>23_mammography</td><td>1.227</td><td>1.227</td><td>50.83</td><td>0.1758</td><td>0.003906</td><td>3.07</td></tr>
+<tr><td>24_mnist</td><td>14.84</td><td>14.63</td><td>58.39</td><td>10.93</td><td>7.555</td><td>34.56</td></tr>
+<tr><td>25_musk</td><td>9.715</td><td>9.777</td><td>55.79</td><td>6.898</td><td>4.254</td><td>23.19</td></tr>
+<tr><td>26_optdigits</td><td>6.152</td><td>6.445</td><td>53.93</td><td>4.305</td><td>2.332</td><td>14.81</td></tr>
+<tr><td>27_PageBlocks</td><td>0.9883</td><td>0.9883</td><td>49.99</td><td>0.2148</td><td>0.01172</td><td>3.156</td></tr>
+<tr><td>28_pendigits</td><td>2.016</td><td>2.016</td><td>51.32</td><td>0.418</td><td>0</td><td>5.031</td></tr>
+<tr><td>29_Pima</td><td>0.1055</td><td>0.1055</td><td>49.69</td><td>0</td><td>0</td><td>0.03516</td></tr>
+<tr><td>30_satellite</td><td>4.402</td><td>4.402</td><td>52.75</td><td>2.492</td><td>1.418</td><td>10.46</td></tr>
+<tr><td>31_satimage-2</td><td>3.656</td><td>3.688</td><td>52.07</td><td>2.453</td><td>1.746</td><td>9.199</td></tr>
+<tr><td>32_shuttle</td><td>12.37</td><td>11.91</td><td>57.79</td><td>6.031</td><td>4.598</td><td>20.11</td></tr>
+<tr><td>33_skin</td><td>16.58</td><td>16.62</td><td>56.62</td><td>11.03</td><td>10.21</td><td>31.97</td></tr>
+<tr><td>34_smtp</td><td>5.727</td><td>5.621</td><td>52.48</td><td>3.867</td><td>3.156</td><td>12.21</td></tr>
+<tr><td>35_SpamBase</td><td>3.992</td><td>4.238</td><td>52.29</td><td>2.238</td><td>1.43</td><td>10.9</td></tr>
+<tr><td>36_speech</td><td>29.22</td><td>29.3</td><td>66.15</td><td>22.94</td><td>16.43</td><td>67.28</td></tr>
+<tr><td>37_Stamps</td><td>0.05078</td><td>0.05078</td><td>49.69</td><td>0.007812</td><td>0.007812</td><td>0.0625</td></tr>
+<tr><td>38_thyroid</td><td>0.4102</td><td>0.4102</td><td>49.75</td><td>0.05078</td><td>0.007812</td><td>0.9805</td></tr>
+<tr><td>39_vertebral</td><td>0.01953</td><td>0.01953</td><td>49.7</td><td>0.007812</td><td>0.007812</td><td>0</td></tr>
+<tr><td>40_vowels</td><td>0.3164</td><td>0.3164</td><td>49.61</td><td>0.007812</td><td>0.007812</td><td>0.6523</td></tr>
+<tr><td>41_Waveform</td><td>1.324</td><td>1.324</td><td>51</td><td>0.2383</td><td>0</td><td>3.309</td></tr>
+<tr><td>42_WBC</td><td>0.03125</td><td>0.03125</td><td>49.65</td><td>0.01172</td><td>0.01172</td><td>0</td></tr>
+<tr><td>43_WDBC</td><td>0.1953</td><td>0.1953</td><td>49.64</td><td>0.003906</td><td>0.003906</td><td>0.4492</td></tr>
+<tr><td>44_Wilt</td><td>0.4375</td><td>0.4375</td><td>49.58</td><td>0.01172</td><td>0.01172</td><td>1.094</td></tr>
+<tr><td>45_wine</td><td>0.02344</td><td>0.02344</td><td>49.78</td><td>0.007812</td><td>0.007812</td><td>0</td></tr>
+<tr><td>46_WPBC</td><td>0.1133</td><td>0.1133</td><td>49.73</td><td>0.007812</td><td>0.007812</td><td>0.03516</td></tr>
+<tr><td>47_yeast</td><td>0.2109</td><td>0.2109</td><td>49.73</td><td>0.003906</td><td>0.003906</td><td>0.5039</td></tr>
+</table>
+</details>
+<h2>Saving and loading</h2>
+<table>
+<tr><th rowspan="2">dataset</th><th rowspan="2">variant</th><th colspan="3">save, s</th><th colspan="3">load, s</th><th colspan="3">file, MB</th></tr>
+<tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
+<tr><td>1000x10</td><td>default</td><td>0.0001399 (×3.6)</td><td>0.0001472 (×3.4)</td><td>0.0004987</td><td>0.00007743 (×4.3)</td><td>0.00007697 (×4.4)</td><td>0.000336</td><td>0.04396</td><td>0.04397</td><td>0.2389</td></tr>
+<tr><td>1000x10</td><td>compressed</td><td>0.001823 (×2.7)</td><td>0.001795 (×2.7)</td><td>0.004848</td><td>0.00007848 (×19.8)</td><td>0.00007831 (×19.9)</td><td>0.001557</td><td>0.04394</td><td>0.04395</td><td>0.09782</td></tr>
+<tr><td>10000x10</td><td>default</td><td>0.000923 (×1.6)</td><td>0.0008513 (×1.8)</td><td>0.001513</td><td>0.0004901 (×1.6)</td><td>0.0004994 (×1.5)</td><td>0.0007638</td><td>0.4356</td><td>0.4356</td><td>2.381</td></tr>
+<tr><td>10000x10</td><td>compressed</td><td>0.02556 (×2.9)</td><td>0.02059 (×3.6)</td><td>0.07478</td><td>0.0005699 (×27.8)</td><td>0.0005745 (×27.6)</td><td>0.01586</td><td>0.4279</td><td>0.4272</td><td>1.633</td></tr>
+<tr><td>100000x10</td><td>default</td><td>0.00983 (×1.2)</td><td>0.01108 (×1.0)</td><td>0.01135</td><td>0.004956 (×1.9)</td><td>0.004894 (×1.9)</td><td>0.009296</td><td>4.179</td><td>4.179</td><td>23.8</td></tr>
+<tr><td>100000x10</td><td>compressed</td><td>0.6279 (×1.6)</td><td>0.633 (×1.6)</td><td>1.027</td><td>0.006914 (×25.9)</td><td>0.007183 (×24.9)</td><td>0.1791</td><td>3.731</td><td>3.731</td><td>21.61</td></tr>
+<tr><td>1000000x10</td><td>default</td><td>0.1675 (×0.7)</td><td>0.1627 (×0.7)</td><td>0.1188</td><td>0.09352 (×0.5)</td><td>0.09735 (×0.5)</td><td>0.04618</td><td>40.61</td><td>40.61</td><td>238</td></tr>
+<tr><td>1000000x10</td><td>compressed</td><td>12.25 (×0.9)</td><td>11.38 (×0.9)</td><td>10.78</td><td>0.1012 (×17.4)</td><td>0.1 (×17.6)</td><td>1.761</td><td>30.64</td><td>30.64</td><td>223</td></tr>
+<tr><td>10000x100</td><td>default</td><td>0.009535 (×1.2)</td><td>0.008807 (×1.3)</td><td>0.01137</td><td>0.004632 (×1.9)</td><td>0.004714 (×1.8)</td><td>0.008658</td><td>4.323</td><td>4.323</td><td>22.98</td></tr>
+<tr><td>10000x100</td><td>compressed</td><td>0.565 (×1.3)</td><td>0.5596 (×1.3)</td><td>0.7245</td><td>0.005361 (×29.4)</td><td>0.005536 (×28.5)</td><td>0.1577</td><td>4.281</td><td>4.281</td><td>15.65</td></tr>
+<tr><td>100000x100</td><td>default</td><td>0.1204 (×1.0)</td><td>0.1201 (×1.0)</td><td>0.1181</td><td>0.09637 (×0.5)</td><td>0.09548 (×0.5)</td><td>0.04589</td><td>41.71</td><td>41.71</td><td>229.8</td></tr>
+<tr><td>100000x100</td><td>compressed</td><td>10.9 (×0.9)</td><td>10.83 (×0.9)</td><td>10.13</td><td>0.121 (×14.0)</td><td>0.1205 (×14.0)</td><td>1.688</td><td>37.31</td><td>37.31</td><td>211.4</td></tr>
+</table>
+<h2>Quality</h2>
+<p>ROC AUC on the ADBench test part.</p>
+<table>
+<tr><th rowspan="2">dataset</th><th colspan="3">ROC AUC</th></tr>
+<tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
+<tr><td>1_ALOI</td><td>0.5264</td><td>0.5262</td><td>0.5264</td></tr>
+<tr><td>2_annthyroid</td><td>0.757</td><td>0.7542</td><td>0.757</td></tr>
+<tr><td>3_backdoor</td><td>0.8482</td><td>0.8486</td><td>0.8482</td></tr>
+<tr><td>4_breastw</td><td>0.9929</td><td>0.992</td><td>0.9929</td></tr>
+<tr><td>5_campaign</td><td>0.7653</td><td>0.7652</td><td>0.7653</td></tr>
+<tr><td>6_cardio</td><td>0.9291</td><td>0.927</td><td>0.9291</td></tr>
+<tr><td>7_Cardiotocography</td><td>0.7836</td><td>0.7853</td><td>0.7836</td></tr>
+<tr><td>8_celeba</td><td>0.7485</td><td>0.7486</td><td>0.7485</td></tr>
+<tr><td>9_census</td><td>0.6603</td><td>0.6608</td><td>0.6603</td></tr>
+<tr><td>10_cover</td><td>0.9238</td><td>0.9234</td><td>0.9238</td></tr>
+<tr><td>11_donors</td><td>0.8884</td><td>0.8879</td><td>0.8884</td></tr>
+<tr><td>12_fault</td><td>0.4975</td><td>0.5001</td><td>0.4975</td></tr>
+<tr><td>13_fraud</td><td>0.9464</td><td>0.9464</td><td>0.9464</td></tr>
+<tr><td>14_glass</td><td>0.7871</td><td>0.7871</td><td>0.7871</td></tr>
+<tr><td>15_Hepatitis</td><td>0.7714</td><td>0.7886</td><td>0.7714</td></tr>
+<tr><td>16_http</td><td>0.9787</td><td>0.9786</td><td>0.9787</td></tr>
+<tr><td>17_InternetAds</td><td>0.6833</td><td>0.685</td><td>0.6833</td></tr>
+<tr><td>18_Ionosphere</td><td>0.7336</td><td>0.7354</td><td>0.7336</td></tr>
+<tr><td>19_landsat</td><td>0.3826</td><td>0.3853</td><td>0.3826</td></tr>
+<tr><td>20_letter</td><td>0.5206</td><td>0.5138</td><td>0.5206</td></tr>
+<tr><td>21_Lymphography</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>22_magic.gamma</td><td>0.635</td><td>0.634</td><td>0.635</td></tr>
+<tr><td>23_mammography</td><td>0.9288</td><td>0.9295</td><td>0.9288</td></tr>
+<tr><td>24_mnist</td><td>0.7422</td><td>0.7391</td><td>0.7422</td></tr>
+<tr><td>25_musk</td><td>0.9492</td><td>0.9445</td><td>0.9492</td></tr>
+<tr><td>26_optdigits</td><td>0.5938</td><td>0.5985</td><td>0.5938</td></tr>
+<tr><td>27_PageBlocks</td><td>0.9116</td><td>0.9093</td><td>0.9116</td></tr>
+<tr><td>28_pendigits</td><td>0.9287</td><td>0.9301</td><td>0.9287</td></tr>
+<tr><td>29_Pima</td><td>0.6084</td><td>0.6042</td><td>0.6084</td></tr>
+<tr><td>30_satellite</td><td>0.5945</td><td>0.5966</td><td>0.5945</td></tr>
+<tr><td>31_satimage-2</td><td>0.9636</td><td>0.9636</td><td>0.9636</td></tr>
+<tr><td>32_shuttle</td><td>0.9937</td><td>0.9938</td><td>0.9937</td></tr>
+<tr><td>33_skin</td><td>0.4885</td><td>0.4892</td><td>0.4885</td></tr>
+<tr><td>34_smtp</td><td>0.9536</td><td>0.9535</td><td>0.9536</td></tr>
+<tr><td>35_SpamBase</td><td>0.673</td><td>0.6793</td><td>0.673</td></tr>
+<tr><td>36_speech</td><td>0.4481</td><td>0.4493</td><td>0.4481</td></tr>
+<tr><td>37_Stamps</td><td>0.8782</td><td>0.8776</td><td>0.8782</td></tr>
+<tr><td>38_thyroid</td><td>0.9775</td><td>0.9772</td><td>0.9775</td></tr>
+<tr><td>39_vertebral</td><td>0.2827</td><td>0.2768</td><td>0.2827</td></tr>
+<tr><td>40_vowels</td><td>0.5643</td><td>0.5507</td><td>0.5643</td></tr>
+<tr><td>41_Waveform</td><td>0.6288</td><td>0.6281</td><td>0.6288</td></tr>
+<tr><td>42_WBC</td><td>0.9923</td><td>0.9923</td><td>0.9923</td></tr>
+<tr><td>43_WDBC</td><td>0.9598</td><td>0.951</td><td>0.9598</td></tr>
+<tr><td>44_Wilt</td><td>0.4018</td><td>0.3979</td><td>0.4018</td></tr>
+<tr><td>45_wine</td><td>0.43</td><td>0.4</td><td>0.43</td></tr>
+<tr><td>46_WPBC</td><td>0.44</td><td>0.4238</td><td>0.44</td></tr>
+<tr><td>47_yeast</td><td>0.4335</td><td>0.4327</td><td>0.4335</td></tr>
+</table>
