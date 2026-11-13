@@ -132,7 +132,7 @@ def fit(lib: str, x: np.ndarray):
     """
     if lib == "pyod-ECOD":
         return PyodECOD(n_jobs=1).fit(x)
-    return RS[lib](method="pyod-max").fit(x.T.tolist())
+    return RS[lib](method="pyod-max").fit(x)
 
 
 def score(lib: str, model, x: np.ndarray):
@@ -144,7 +144,7 @@ def score(lib: str, model, x: np.ndarray):
     :param x: Test matrix.
     :return: Outlier scores.
     """
-    return model.decision_function(x if lib == "pyod-ECOD" else x.T.tolist())
+    return model.decision_function(x)
 
 
 def save(lib: str, model, path: Path, variant: str) -> None:
@@ -207,7 +207,7 @@ def make_action(
             :raises AssertionError: When input with NaN is accepted.
             """
             try:
-                RS[lib]().fit(bad.T.tolist())
+                RS[lib]().fit(bad)
             except ValueError:
                 return
             raise AssertionError("NaN input was accepted")
