@@ -1,6 +1,9 @@
 [project]
 version = "1.0.0"
 description = "ECOD rust implementation."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "nedeadinside",email = "aquvva67@gmail.com"}
 ]
@@ -9,6 +12,11 @@ requires-python = ">=3.12,<3.15"
 dependencies = [
     "numpy (>=1.26)"
 ]
+
+[project.urls]
+Repository = "https://github.com/nedeadinside/ecod-rs"
+Issues = "https://github.com/nedeadinside/ecod-rs/issues"
+Author = "https://github.com/nedeadinside"
 
 [build-system]
 requires = ["maturin>=1.9,<2.0"]
