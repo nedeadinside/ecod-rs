@@ -1,4 +1,5 @@
 use crate::errors::Error;
+use crate::matrix::Matrix;
 use num_traits::{Float, NumCast};
 use std::{fs, path::Path};
 
@@ -64,19 +65,19 @@ impl<T: Float> TrainScores<T> {
 /// Base trait to initialize model parameters
 pub trait Fit<T: Float> {
     type Model;
-    fn fit(&self, x: &FloatMatrix<T>) -> Result<Self::Model, Error>;
+    fn fit(&self, x: &Matrix<'_, T>) -> Result<Self::Model, Error>;
 }
 
 /// Base trait to get predictions from model
 pub trait Predict<T: Float> {
     fn internal_decision_function(
         &self,
-        x: &FloatMatrix<T>,
+        x: &Matrix<'_, T>,
     ) -> Result<(FloatVector<T>, TrainScores<T>, T), Error>;
 
-    fn decision_function(&self, x: &FloatMatrix<T>) -> Result<FloatVector<T>, Error>;
+    fn decision_function(&self, x: &Matrix<'_, T>) -> Result<FloatVector<T>, Error>;
 
-    fn predict(&self, x: &FloatMatrix<T>) -> Result<Vec<i32>, Error> {
+    fn predict(&self, x: &Matrix<'_, T>) -> Result<Vec<i32>, Error> {
         let (result, _, threshold) = self.internal_decision_function(x)?;
         Ok(result
             .iter()
@@ -86,36 +87,29 @@ pub trait Predict<T: Float> {
 
     fn predict_proba(
         &self,
-        x: &FloatMatrix<T>,
+        x: &Matrix<'_, T>,
         method: ECODProbaMethod,
-    ) -> Result<FloatMatrix<T>, Error> {
+    ) -> Result<Vec<[T; 2]>, Error> {
         let (result, train_score, _) = self.internal_decision_function(x)?;
 
-        let outlier: FloatVector<T> = match method {
-            ECODProbaMethod::LINEAR => {
-                // Zero range is replaced by 1, as sklearn MinMaxScaler does
-                let range = train_score.max - train_score.min;
-                let range = if range == T::zero() { T::one() } else { range };
-                result
-                    .iter()
-                    .map(|&s| ((s - train_score.min) / range).max(T::zero()).min(T::one()))
-                    .collect()
-            }
-            ECODProbaMethod::UNIFY => {
-                let scale = train_score.std * T::from(2.0).unwrap().sqrt();
-                // Zero std gives NaN Float::max returns the non-NaN operand, so it maps to 0
-                result
-                    .iter()
-                    .map(|&s| {
-                        let z = ((s - train_score.mean) / scale).to_f64().unwrap();
-                        T::from(libm::erf(z)).unwrap().max(T::zero()).min(T::one())
-                    })
-                    .collect()
-            }
-        };
-        let inlier = outlier.iter().map(|&p| T::one() - p).collect();
+        let range = train_score.max - train_score.min;
+        let range = if range == T::zero() { T::one() } else { range };
+        let scale = train_score.std * T::from(2.0).unwrap().sqrt();
 
-        Ok(vec![inlier, outlier])
+        Ok(result
+            .iter()
+            .map(|&s| {
+                let outlier = match method {
+                    ECODProbaMethod::LINEAR => (s - train_score.min) / range,
+                    ECODProbaMethod::UNIFY => {
+                        let z = ((s - train_score.mean) / scale).to_f64().unwrap();
+                        T::from(libm::erf(z)).unwrap()
+                    }
+                };
+                let outlier = outlier.max(T::zero()).min(T::one());
+                [T::one() - outlier, outlier]
+            })
+            .collect())
     }
 }
 

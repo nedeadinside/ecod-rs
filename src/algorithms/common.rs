@@ -1,4 +1,5 @@
 use crate::errors::Error;
+use crate::matrix::Matrix;
 use crate::types::{ECODScoreMethod, FloatMatrix, FloatVector};
 
 use num_traits::Float;
@@ -39,12 +40,12 @@ pub fn validate_contamination(contamination: f64) -> Result<(), Error> {
     Ok(())
 }
 
-/// Computes skewness of the given vector.
-pub fn compute_skewness<T: Float>(vector: &FloatVector<T>) -> T {
-    let n = T::from(vector.len()).unwrap();
-    let mean = vector.iter().fold(T::zero(), |a, &x| a + x) / n;
+/// Computes skewness of the given column.
+pub fn compute_skewness<T: Float>(col: impl ExactSizeIterator<Item = T> + Clone) -> T {
+    let n = T::from(col.len()).unwrap();
+    let mean = col.clone().fold(T::zero(), |a, x| a + x) / n;
 
-    let (sum2, sum3) = vector.iter().fold((T::zero(), T::zero()), |(s2, s3), &x| {
+    let (sum2, sum3) = col.fold((T::zero(), T::zero()), |(s2, s3), x| {
         let d = x - mean;
         let d2 = d * d;
         (s2 + d2, s3 + d2 * d)
@@ -59,24 +60,42 @@ pub fn compute_skewness<T: Float>(vector: &FloatVector<T>) -> T {
 }
 
 /// Per-feature skewnesses, zeros for methods that do not pick tails by skewness.
-pub fn compute_skewnesses<T: Float>(x: &FloatMatrix<T>, method: ECODScoreMethod) -> FloatVector<T> {
+pub fn compute_skewnesses<T, C>(
+    cols: impl Iterator<Item = C>,
+    method: ECODScoreMethod,
+) -> FloatVector<T>
+where
+    T: Float,
+    C: ExactSizeIterator<Item = T> + Clone,
+{
     match method {
-        ECODScoreMethod::AUTO | ECODScoreMethod::MAX => x.iter().map(compute_skewness).collect(),
-        _ => vec![T::zero(); x.len()],
+        ECODScoreMethod::AUTO | ECODScoreMethod::MAX => cols.map(compute_skewness).collect(),
+        _ => vec![T::zero(); cols.count()],
     }
 }
 
-pub fn validate_shape<T: Float>(a: &FloatMatrix<T>, b: &FloatMatrix<T>) -> Result<(), Error> {
-    if a.len() != b.len() {
+/// Validates that x has as many features as the train data.
+pub fn validate_shape<T: Float>(data: &FloatMatrix<T>, x: &Matrix<'_, T>) -> Result<(), Error> {
+    if data.len() != x.ncols() {
         return Err(Error::FeatureMismatch {
-            expected: (a.len()),
-            got: (b.len()),
+            expected: data.len(),
+            got: x.ncols(),
         });
     }
     Ok(())
 }
 
-/// Validates that the feature matrix is non-empty, rectangular, and fully finite.
+/// Validates that the input matrix is fully finite, shape is checked on construction.
+pub fn validate_finite<T: Float>(x: &Matrix<'_, T>) -> Result<(), Error> {
+    for (col, mut values) in x.cols().enumerate() {
+        if let Some(row) = values.position(|v| !v.is_finite()) {
+            return Err(Error::NonFinite { row, col });
+        }
+    }
+    Ok(())
+}
+
+/// Validates that stored train columns are non-empty, equally long, and fully finite.
 pub fn validate_finity<T: Float>(feature_matrix: &FloatMatrix<T>) -> Result<(), Error> {
     let n_rows = match feature_matrix.first() {
         Some(col) if !col.is_empty() => col.len(),
@@ -112,17 +131,21 @@ mod tests {
         cols.iter().map(|c| c.to_vec()).collect()
     }
 
+    fn input(rows: &[&[f32]]) -> Matrix<'static, f32> {
+        Matrix::from_rows(rows.iter().map(|r| r.to_vec()).collect()).unwrap()
+    }
+
     // Shape
     #[test]
     fn validate_shape_accepts_same_number_of_features() {
         let a = matrix(&[&[1.0, 2.0], &[3.0, 4.0]]);
-        assert_eq!(validate_shape(&a, &a), Ok(()));
+        assert_eq!(validate_shape(&a, &input(&[&[1.0, 3.0]])), Ok(()));
     }
 
     #[test]
     fn validate_shape_rejects_fewer_features() {
         let a = matrix(&[&[1.0], &[2.0], &[3.0]]);
-        let b = matrix(&[&[1.0]]);
+        let b = input(&[&[1.0]]);
         assert_eq!(
             validate_shape(&a, &b),
             Err(Error::FeatureMismatch {
@@ -135,7 +158,7 @@ mod tests {
     #[test]
     fn validate_shape_rejects_more_features() {
         let a = matrix(&[&[1.0]]);
-        let b = matrix(&[&[1.0], &[2.0]]);
+        let b = input(&[&[1.0, 2.0]]);
         assert_eq!(
             validate_shape(&a, &b),
             Err(Error::FeatureMismatch {
@@ -148,7 +171,7 @@ mod tests {
     #[test]
     fn validate_shape_ignores_number_of_rows() {
         let a = matrix(&[&[1.0, 2.0, 3.0]]);
-        let b = matrix(&[&[1.0]]);
+        let b = input(&[&[1.0]]);
         assert_eq!(validate_shape(&a, &b), Ok(()));
     }
 
@@ -197,6 +220,16 @@ mod tests {
         assert_eq!(validate_finity(&m), Ok(()));
     }
 
+    #[test]
+    fn validate_finite_reports_sample_and_feature() {
+        let x = input(&[&[1.0, 2.0], &[3.0, f32::NAN]]);
+        assert_eq!(
+            validate_finite(&x),
+            Err(Error::NonFinite { row: 1, col: 1 })
+        );
+        assert_eq!(validate_finite(&input(&[&[1.0, 2.0]])), Ok(()));
+    }
+
     // Score
     #[test]
     fn compute_score_subtracts_ln_and_skips_non_positive() {
@@ -218,11 +251,11 @@ mod tests {
     // Skewness
     #[test]
     fn skewness_of_constant_vector_is_zero() {
-        assert_close(compute_skewness(&vec![3.0f64; 5]), 0.0);
+        assert_close(compute_skewness([3.0f64; 5].into_iter()), 0.0);
     }
 
     #[test]
     fn skewness_of_symmetric_vector_is_zero() {
-        assert_close(compute_skewness(&vec![1.0f64, 2.0, 3.0]), 0.0);
+        assert_close(compute_skewness([1.0f64, 2.0, 3.0].into_iter()), 0.0);
     }
 }

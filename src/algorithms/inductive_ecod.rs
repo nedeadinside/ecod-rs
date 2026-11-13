@@ -1,10 +1,11 @@
 use num_traits::float::{Float, TotalOrder};
 
 use super::common::{
-    compute_score, compute_skewnesses, compute_threshold, validate_contamination, validate_finity,
-    validate_shape,
+    compute_score, compute_skewnesses, compute_threshold, validate_contamination, validate_finite,
+    validate_finity, validate_shape,
 };
 use crate::errors::{CorruptionKind, Error};
+use crate::matrix::Matrix;
 use crate::types::{
     ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, TrainScores, Validate,
 };
@@ -34,11 +35,11 @@ fn decision_scores<T: Float>(
     data: &FloatMatrix<T>,
     skewnesses: &FloatVector<T>,
     method: ECODScoreMethod,
-    x: &FloatMatrix<T>,
+    x: &Matrix<'_, T>,
 ) -> FloatVector<T> {
     // Consts
     let denominator = T::from(data.first().map_or(0, |col| col.len()) + 1).unwrap();
-    let row_count = x.first().map_or(0, |x| x.len());
+    let row_count = x.nrows();
 
     let mut res: FloatVector<T> = vec![T::zero(); row_count];
     // Paper max(L, R, A) = A + max(0, L - A, R - A): res holds A, gains hold the differences
@@ -50,36 +51,36 @@ fn decision_scores<T: Float>(
     let mut left_gain: FloatVector<T> = vec![T::zero(); gains_len];
     let mut right_gain: FloatVector<T> = vec![T::zero(); gains_len];
 
-    for ((col, sorted), &skewness) in x.iter().zip(data).zip(skewnesses) {
-        let right = |v: &T| right_tail(sorted, *v, denominator);
-        let left = |v: &T| left_tail(sorted, *v, denominator);
+    for ((col, sorted), &skewness) in x.cols().zip(data).zip(skewnesses) {
+        let right = |v: T| right_tail(sorted, v, denominator);
+        let left = |v: T| left_tail(sorted, v, denominator);
 
         match method {
-            ECODScoreMethod::RIGHT => compute_score(&mut res, col.iter().map(right)),
-            ECODScoreMethod::LEFT => compute_score(&mut res, col.iter().map(left)),
+            ECODScoreMethod::RIGHT => compute_score(&mut res, col.map(right)),
+            ECODScoreMethod::LEFT => compute_score(&mut res, col.map(left)),
             ECODScoreMethod::AUTO if skewness >= T::zero() => {
-                compute_score(&mut res, col.iter().map(right))
+                compute_score(&mut res, col.map(right))
             }
-            ECODScoreMethod::AUTO => compute_score(&mut res, col.iter().map(left)),
+            ECODScoreMethod::AUTO => compute_score(&mut res, col.map(left)),
             // Per-feature auto is either left or right, so min(left, right) covers it
             ECODScoreMethod::PYODMAX => compute_score(
                 &mut res,
-                col.iter().map(|v| {
-                    let (l, r) = tails(sorted, *v, denominator);
+                col.map(|v| {
+                    let (l, r) = tails(sorted, v, denominator);
                     l.min(r)
                 }),
             ),
             // Tails are positive: counts start from 1
             ECODScoreMethod::MAX if skewness >= T::zero() => {
                 for ((s, g), v) in res.iter_mut().zip(&mut left_gain).zip(col) {
-                    let (l, r) = tails(sorted, *v, denominator);
+                    let (l, r) = tails(sorted, v, denominator);
                     *s = *s - r.ln();
                     *g = *g + (r / l).ln();
                 }
             }
             ECODScoreMethod::MAX => {
                 for ((s, g), v) in res.iter_mut().zip(&mut right_gain).zip(col) {
-                    let (l, r) = tails(sorted, *v, denominator);
+                    let (l, r) = tails(sorted, v, denominator);
                     *s = *s - l.ln();
                     *g = *g + (l / r).ln();
                 }
@@ -120,19 +121,19 @@ pub struct InductiveECODModel<T> {
 
 impl<T: Float + TotalOrder> InductiveECODModel<T> {
     fn new(
-        x: &FloatMatrix<T>,
+        x: &Matrix<'_, T>,
         contamination: f64,
         method: ECODScoreMethod,
     ) -> InductiveECODModel<T> {
         let data: Vec<Vec<T>> = x
-            .iter()
-            .map(|inner| {
-                let mut v = inner.clone();
+            .cols()
+            .map(|col| {
+                let mut v: Vec<T> = col.collect();
                 v.sort_by(|a, b| a.total_cmp(b));
                 v
             })
             .collect();
-        let skewnesses = compute_skewnesses(x, method);
+        let skewnesses = compute_skewnesses(x.cols(), method);
         let train_scores = decision_scores(&data, &skewnesses, method, x);
 
         let threshold = compute_threshold(&train_scores, 100.0 * (1.0 - contamination));
@@ -161,8 +162,8 @@ impl<T> InductiveECODModel<T> {
 impl<T: Float + TotalOrder> Fit<T> for InductiveECOD {
     type Model = InductiveECODModel<T>;
 
-    fn fit(&self, x: &FloatMatrix<T>) -> Result<Self::Model, Error> {
-        validate_finity(x)?;
+    fn fit(&self, x: &Matrix<'_, T>) -> Result<Self::Model, Error> {
+        validate_finite(x)?;
 
         Ok(InductiveECODModel::new(x, self.contamination, self.method))
     }
@@ -171,18 +172,18 @@ impl<T: Float + TotalOrder> Fit<T> for InductiveECOD {
 impl<T: Float + TotalOrder> Predict<T> for InductiveECODModel<T> {
     fn internal_decision_function(
         &self,
-        x: &FloatMatrix<T>,
+        x: &Matrix<'_, T>,
     ) -> Result<(FloatVector<T>, TrainScores<T>, T), Error> {
         validate_shape(&self.data, x)?;
-        validate_finity(x)?;
+        validate_finite(x)?;
 
         let res = decision_scores(&self.data, &self.skewnesses, self.method, x);
         Ok((res, self.train_score, self.threshold))
     }
 
-    fn decision_function(&self, x: &FloatMatrix<T>) -> Result<FloatVector<T>, Error> {
+    fn decision_function(&self, x: &Matrix<'_, T>) -> Result<FloatVector<T>, Error> {
         validate_shape(&self.data, x)?;
-        validate_finity(x)?;
+        validate_finite(x)?;
 
         let res = decision_scores(&self.data, &self.skewnesses, self.method, x);
         Ok(res)
@@ -249,7 +250,7 @@ mod tests {
     fn fitted() -> InductiveECODModel<f64> {
         InductiveECOD::new(0.1, ECODScoreMethod::MAX)
             .unwrap()
-            .fit(&vec![vec![3.0, 1.0, 2.0], vec![-1.0, 5.0, 0.5]])
+            .fit(&Matrix::from_rows(vec![vec![3.0, -1.0], vec![1.0, 5.0], vec![2.0, 0.5]]).unwrap())
             .unwrap()
     }
 
