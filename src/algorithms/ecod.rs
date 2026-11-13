@@ -1,10 +1,11 @@
 use num_traits::float::{Float, TotalOrder};
 
 use super::common::{
-    compute_score, compute_skewnesses, compute_threshold, validate_contamination, validate_finity,
-    validate_shape,
+    compute_score, compute_skewnesses, compute_threshold, validate_contamination, validate_finite,
+    validate_finity, validate_shape,
 };
 use crate::errors::{CorruptionKind, Error};
+use crate::matrix::Matrix;
 use crate::types::{
     ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, TrainScores, Validate,
 };
@@ -31,12 +32,12 @@ pub fn tails<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> (T,
 /// Function that merges a sorted feature matrix with an unsorted one.
 fn merge<T: Float + TotalOrder>(
     a: &FloatMatrix<T>,
-    unsorted_data: &FloatMatrix<T>,
+    unsorted_data: &Matrix<'_, T>,
 ) -> FloatMatrix<T> {
     let mut res: Vec<Vec<T>> = vec![];
 
-    for (acol, bcol) in a.iter().zip(unsorted_data) {
-        let mut b = bcol.clone();
+    for (acol, bcol) in a.iter().zip(unsorted_data.cols()) {
+        let mut b: Vec<T> = bcol.collect();
         b.sort_by(|l, r| l.total_cmp(r));
 
         let mut res_col = Vec::with_capacity(acol.len() + b.len());
@@ -64,11 +65,11 @@ fn decision_scores<T: Float>(
     sorted_data: &FloatMatrix<T>,
     skewnesses: &FloatVector<T>,
     method: ECODScoreMethod,
-    x: &FloatMatrix<T>,
+    x: &Matrix<'_, T>,
 ) -> FloatVector<T> {
     // Consts
     let denominator = T::from(sorted_data.first().map_or(0, |col| col.len())).unwrap();
-    let row_count = x.first().map_or(0, |x| x.len());
+    let row_count = x.nrows();
 
     let mut res: FloatVector<T> = vec![T::zero(); row_count];
     // Paper max(L, R, A)
@@ -80,35 +81,35 @@ fn decision_scores<T: Float>(
     let mut left_gain: FloatVector<T> = vec![T::zero(); gains_len];
     let mut right_gain: FloatVector<T> = vec![T::zero(); gains_len];
 
-    for ((col, sorted), &skewness) in x.iter().zip(sorted_data).zip(skewnesses) {
-        let right = |v: &T| right_tail(sorted, *v, denominator);
-        let left = |v: &T| left_tail(sorted, *v, denominator);
+    for ((col, sorted), &skewness) in x.cols().zip(sorted_data).zip(skewnesses) {
+        let right = |v: T| right_tail(sorted, v, denominator);
+        let left = |v: T| left_tail(sorted, v, denominator);
 
         match method {
-            ECODScoreMethod::RIGHT => compute_score(&mut res, col.iter().map(right)),
-            ECODScoreMethod::LEFT => compute_score(&mut res, col.iter().map(left)),
+            ECODScoreMethod::RIGHT => compute_score(&mut res, col.map(right)),
+            ECODScoreMethod::LEFT => compute_score(&mut res, col.map(left)),
             ECODScoreMethod::AUTO if skewness >= T::zero() => {
-                compute_score(&mut res, col.iter().map(right))
+                compute_score(&mut res, col.map(right))
             }
-            ECODScoreMethod::AUTO => compute_score(&mut res, col.iter().map(left)),
+            ECODScoreMethod::AUTO => compute_score(&mut res, col.map(left)),
             // Per-feature auto is either left or right, so min(left, right) covers it
             ECODScoreMethod::PYODMAX => compute_score(
                 &mut res,
-                col.iter().map(|v| {
-                    let (l, r) = tails(sorted, *v, denominator);
+                col.map(|v| {
+                    let (l, r) = tails(sorted, v, denominator);
                     l.min(r)
                 }),
             ),
             ECODScoreMethod::MAX if skewness >= T::zero() => {
                 for ((s, g), v) in res.iter_mut().zip(&mut left_gain).zip(col) {
-                    let (l, r) = tails(sorted, *v, denominator);
+                    let (l, r) = tails(sorted, v, denominator);
                     *s = *s - r.ln();
                     *g = *g + (r / l).ln();
                 }
             }
             ECODScoreMethod::MAX => {
                 for ((s, g), v) in res.iter_mut().zip(&mut right_gain).zip(col) {
-                    let (l, r) = tails(sorted, *v, denominator);
+                    let (l, r) = tails(sorted, v, denominator);
                     *s = *s - l.ln();
                     *g = *g + (l / r).ln();
                 }
@@ -149,17 +150,17 @@ pub struct ECODModel<T> {
 }
 
 impl<T: Float + TotalOrder> ECODModel<T> {
-    fn new(x: &FloatMatrix<T>, contamination: f64, method: ECODScoreMethod) -> ECODModel<T> {
+    fn new(x: &Matrix<'_, T>, contamination: f64, method: ECODScoreMethod) -> ECODModel<T> {
         let data: FloatMatrix<T> = x
-            .iter()
-            .map(|inner| {
-                let mut v = inner.clone();
+            .cols()
+            .map(|col| {
+                let mut v: Vec<T> = col.collect();
                 v.sort_by(|a, b| a.total_cmp(b));
                 v
             })
             .collect();
         // Train sample is scored against itself, so data already contains x
-        let skewnesses = compute_skewnesses(x, method);
+        let skewnesses = compute_skewnesses(x.cols(), method);
         let train_scores = decision_scores(&data, &skewnesses, method, x);
 
         let threshold = compute_threshold(&train_scores, 100.0 * (1.0 - contamination));
@@ -174,12 +175,12 @@ impl<T: Float + TotalOrder> ECODModel<T> {
     }
 
     /// Scores x against train data merged with x itself
-    fn merged_scores(&self, x: &FloatMatrix<T>) -> Result<FloatVector<T>, Error> {
+    fn merged_scores(&self, x: &Matrix<'_, T>) -> Result<FloatVector<T>, Error> {
         validate_shape(&self.data, x)?;
-        validate_finity(x)?;
+        validate_finite(x)?;
 
         let merged = merge(&self.data, x);
-        let skewnesses = compute_skewnesses(&merged, self.method);
+        let skewnesses = compute_skewnesses(merged.iter().map(|c| c.iter().copied()), self.method);
         Ok(decision_scores(&merged, &skewnesses, self.method, x))
     }
 }
@@ -197,8 +198,8 @@ impl<T> ECODModel<T> {
 impl<T: Float + TotalOrder> Fit<T> for ECOD {
     type Model = ECODModel<T>;
 
-    fn fit(&self, x: &FloatMatrix<T>) -> Result<Self::Model, Error> {
-        validate_finity(x)?;
+    fn fit(&self, x: &Matrix<'_, T>) -> Result<Self::Model, Error> {
+        validate_finite(x)?;
 
         Ok(ECODModel::new(x, self.contamination, self.method))
     }
@@ -207,13 +208,13 @@ impl<T: Float + TotalOrder> Fit<T> for ECOD {
 impl<T: Float + TotalOrder> Predict<T> for ECODModel<T> {
     fn internal_decision_function(
         &self,
-        x: &FloatMatrix<T>,
+        x: &Matrix<'_, T>,
     ) -> Result<(FloatVector<T>, TrainScores<T>, T), Error> {
         let res = self.merged_scores(x)?;
         Ok((res, self.train_score, self.threshold))
     }
 
-    fn decision_function(&self, x: &FloatMatrix<T>) -> Result<FloatVector<T>, Error> {
+    fn decision_function(&self, x: &Matrix<'_, T>) -> Result<FloatVector<T>, Error> {
         self.merged_scores(x)
     }
 }
@@ -273,7 +274,7 @@ mod tests {
     #[test]
     fn merge_sorts_new_data_and_interleaves_per_column() {
         let a: FloatMatrix<f64> = vec![vec![1.0, 3.0, 5.0], vec![-2.0, 0.0, 2.0]];
-        let b: FloatMatrix<f64> = vec![vec![4.0, 3.0], vec![1.0, -3.0]];
+        let b = Matrix::from_rows(vec![vec![4.0, 1.0], vec![3.0, -3.0]]).unwrap();
         assert_eq!(
             merge(&a, &b),
             vec![
@@ -286,7 +287,7 @@ mod tests {
     #[test]
     fn merge_appends_leftovers_from_either_side() {
         let a: FloatMatrix<f64> = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
-        let b: FloatMatrix<f64> = vec![vec![10.0, 9.0], vec![-1.0, 0.0]];
+        let b = Matrix::from_rows(vec![vec![10.0, -1.0], vec![9.0, 0.0]]).unwrap();
         assert_eq!(
             merge(&a, &b),
             vec![vec![1.0, 2.0, 9.0, 10.0], vec![-1.0, 0.0, 5.0, 6.0]]
@@ -297,7 +298,7 @@ mod tests {
     fn fitted() -> ECODModel<f64> {
         ECOD::new(0.1, ECODScoreMethod::MAX)
             .unwrap()
-            .fit(&vec![vec![3.0, 1.0, 2.0], vec![-1.0, 5.0, 0.5]])
+            .fit(&Matrix::from_rows(vec![vec![3.0, -1.0], vec![1.0, 5.0], vec![2.0, 0.5]]).unwrap())
             .unwrap()
     }
 

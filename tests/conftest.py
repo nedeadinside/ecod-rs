@@ -10,9 +10,9 @@ def data() -> np.ndarray:
     """
     Build gaussian matrix.
 
-    :return: Matrix of shape (features, samples).
+    :return: Matrix.
     """
-    return np.random.default_rng(0).normal(size=(N_FEATURES, N_SAMPLES))
+    return np.random.default_rng(0).normal(size=(N_SAMPLES, N_FEATURES))
 
 
 @pytest.fixture(params=[InductiveECOD, ECOD], ids=["inductive", "ecod"])
