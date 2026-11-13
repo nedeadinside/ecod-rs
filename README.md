@@ -15,10 +15,10 @@ Here you get both:
 
 ## Install
 
-Not on PyPI yet. Requires Python 3.12+ and a Rust toolchain:
+Requires Python 3.12+:
 
 ```bash
-pip install git+https://github.com/nedeadinside/ecod-rs
+pip install ecod-rs
 ```
 
 ## Usage
