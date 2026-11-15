@@ -16,6 +16,40 @@ pub fn compute_score<T: Float>(scores: &mut FloatVector<T>, probs: impl Iterator
     }
 }
 
+/// Partition point of sorted starting from given index, exponential search
+fn gallop<T>(sorted: &[T], from: usize, pred: impl Fn(&T) -> bool) -> usize {
+    let mut lo = from;
+    let mut step = 1;
+    // Everything before lo satisfies pred
+    while lo + step <= sorted.len() && pred(&sorted[lo + step - 1]) {
+        lo += step;
+        step *= 2;
+    }
+    let hi = (lo + step).min(sorted.len());
+    lo + sorted[lo..hi].partition_point(pred)
+}
+
+/// Counts of sorted values less and less-or-equal for each value of col
+pub fn ranks<T: Float + TotalOrder>(
+    col: impl Iterator<Item = T>,
+    sorted: &[T],
+    buf: &mut Vec<(T, usize)>,
+    out: &mut Vec<(usize, usize)>,
+) {
+    buf.clear();
+    buf.extend(col.enumerate().map(|(i, v)| (v, i)));
+    buf.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+
+    out.clear();
+    out.resize(buf.len(), (0, 0));
+    let (mut lt, mut le) = (0, 0);
+    for &(q, i) in buf.iter() {
+        lt = gallop(sorted, lt, |v| *v < q);
+        le = gallop(sorted, le.max(lt), |v| *v <= q);
+        out[i] = (lt, le);
+    }
+}
+
 pub fn compute_threshold<T: Float + TotalOrder>(scores: &FloatVector<T>, pct: f64) -> T {
     // Linear interpolation between closest ranks, as numpy.percentile default
     let mut sorted = scores.clone();
@@ -246,6 +280,37 @@ mod tests {
         compute_score(&mut scores, std::iter::once(std::f64::consts::E));
         assert_close(scores[0], 0.0);
         assert_close(scores[1], 2.0);
+    }
+
+    // Ranks
+    #[test]
+    fn ranks_match_partition_point() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move || {
+            // Small value set for duplicates, includes -0.0
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            match state % 23 {
+                22 => -0.0,
+                k => (k as f64 - 10.0) * 0.5,
+            }
+        };
+        let (mut buf, mut out) = (vec![], vec![]);
+        for (n, m) in [(1000, 10), (10, 1000), (300, 300), (1, 5), (5, 1)] {
+            let mut sorted: Vec<f64> = (0..n).map(|_| next()).collect();
+            sorted.sort_by(|a, b| a.total_cmp(b));
+            let queries: Vec<f64> = (0..m).map(|_| next()).collect();
+
+            ranks(queries.iter().copied(), &sorted, &mut buf, &mut out);
+            for (&q, &got) in queries.iter().zip(&out) {
+                let want = (
+                    sorted.partition_point(|v| *v < q),
+                    sorted.partition_point(|v| *v <= q),
+                );
+                assert_eq!(got, want, "n={n} m={m} q={q}");
+            }
+        }
     }
 
     // Skewness
