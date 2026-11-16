@@ -51,9 +51,9 @@ Median speedup over PyOD's ECOD on random data and 47 ADBench datasets, single-t
 
 | | ECOD | InductiveECOD |
 |---|---|---|
-| fit | 2.7x | 2.7x |
-| score | 5.9x | 7.5x |
-| fit + score | 4.3x | 4.7x |
+| fit | 6.4x | 6.2x |
+| score | 12.0x | 17.7x |
+| fit + score | 9.4x | 10.6x |
 
 Full results are at [nedeadinside.github.io/ecod-rs](https://nedeadinside.github.io/ecod-rs/). To rerun: `uv run --group bench python benchmark/bench.py`.
 

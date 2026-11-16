@@ -1,8 +1,8 @@
 use num_traits::float::{Float, TotalOrder};
 
 use super::common::{
-    compute_score, compute_skewnesses, compute_threshold, validate_contamination, validate_finite,
-    validate_finity, validate_shape,
+    compute_score, compute_skewnesses, compute_threshold, ranks, validate_contamination,
+    validate_finite, validate_finity, validate_shape,
 };
 use crate::errors::{CorruptionKind, Error};
 use crate::matrix::Matrix;
@@ -10,25 +10,6 @@ use crate::types::{
     ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, TrainScores, Validate,
 };
 
-/// Right tail probability
-pub fn right_tail<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> T {
-    T::from(sorted.len() - sorted.partition_point(|v| *v < value)).unwrap() / denominator
-}
-
-/// Left tail probability
-pub fn left_tail<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> T {
-    T::from(sorted.partition_point(|v| *v <= value)).unwrap() / denominator
-}
-
-/// Left and right tail probabilities, second search runs on the prefix only
-pub fn tails<T: Float>(sorted: &FloatVector<T>, value: T, denominator: T) -> (T, T) {
-    let le = sorted.partition_point(|v| *v <= value);
-    let lt = sorted[..le].partition_point(|v| *v < value);
-    (
-        T::from(le).unwrap() / denominator,
-        T::from(sorted.len() - lt).unwrap() / denominator,
-    )
-}
 /// Function that merges a sorted feature matrix with an unsorted one.
 fn merge<T: Float + TotalOrder>(
     a: &FloatMatrix<T>,
@@ -61,7 +42,7 @@ fn merge<T: Float + TotalOrder>(
 }
 
 /// Outlier scores of x against sorted features that already contain x
-fn decision_scores<T: Float>(
+fn decision_scores<T: Float + TotalOrder>(
     sorted_data: &FloatMatrix<T>,
     skewnesses: &FloatVector<T>,
     method: ECODScoreMethod,
@@ -81,35 +62,37 @@ fn decision_scores<T: Float>(
     let mut left_gain: FloatVector<T> = vec![T::zero(); gains_len];
     let mut right_gain: FloatVector<T> = vec![T::zero(); gains_len];
 
+    // Reused across columns
+    let mut buf = Vec::with_capacity(row_count);
+    let mut rk = Vec::with_capacity(row_count);
+
     for ((col, sorted), &skewness) in x.cols().zip(sorted_data).zip(skewnesses) {
-        let right = |v: T| right_tail(sorted, v, denominator);
-        let left = |v: T| left_tail(sorted, v, denominator);
+        ranks(col, sorted, &mut buf, &mut rk);
+        let n = sorted.len();
+        let tails = rk.iter().map(|&(lt, le)| {
+            (
+                T::from(le).unwrap() / denominator,
+                T::from(n - lt).unwrap() / denominator,
+            )
+        });
+        let left = tails.clone().map(|(l, _)| l);
+        let right = tails.clone().map(|(_, r)| r);
 
         match method {
-            ECODScoreMethod::RIGHT => compute_score(&mut res, col.map(right)),
-            ECODScoreMethod::LEFT => compute_score(&mut res, col.map(left)),
-            ECODScoreMethod::AUTO if skewness >= T::zero() => {
-                compute_score(&mut res, col.map(right))
-            }
-            ECODScoreMethod::AUTO => compute_score(&mut res, col.map(left)),
+            ECODScoreMethod::RIGHT => compute_score(&mut res, right),
+            ECODScoreMethod::LEFT => compute_score(&mut res, left),
+            ECODScoreMethod::AUTO if skewness >= T::zero() => compute_score(&mut res, right),
+            ECODScoreMethod::AUTO => compute_score(&mut res, left),
             // Per-feature auto is either left or right, so min(left, right) covers it
-            ECODScoreMethod::PYODMAX => compute_score(
-                &mut res,
-                col.map(|v| {
-                    let (l, r) = tails(sorted, v, denominator);
-                    l.min(r)
-                }),
-            ),
+            ECODScoreMethod::PYODMAX => compute_score(&mut res, tails.map(|(l, r)| l.min(r))),
             ECODScoreMethod::MAX if skewness >= T::zero() => {
-                for ((s, g), v) in res.iter_mut().zip(&mut left_gain).zip(col) {
-                    let (l, r) = tails(sorted, v, denominator);
+                for ((s, g), (l, r)) in res.iter_mut().zip(&mut left_gain).zip(tails) {
                     *s = *s - r.ln();
                     *g = *g + (r / l).ln();
                 }
             }
             ECODScoreMethod::MAX => {
-                for ((s, g), v) in res.iter_mut().zip(&mut right_gain).zip(col) {
-                    let (l, r) = tails(sorted, v, denominator);
+                for ((s, g), (l, r)) in res.iter_mut().zip(&mut right_gain).zip(tails) {
                     *s = *s - l.ln();
                     *g = *g + (l / r).ln();
                 }
@@ -241,34 +224,6 @@ impl<T: Float> Validate for ECODModel<T> {
 mod tests {
     use super::*;
     use crate::types::Persist;
-
-    const EPS: f64 = 1e-12;
-
-    fn assert_close(actual: f64, expected: f64) {
-        assert!(
-            (actual - expected).abs() < EPS,
-            "expected {expected}, got {actual}"
-        );
-    }
-
-    // Tails: `sorted` is the merged sample, so the scored value is already in it
-    #[test]
-    fn right_tail_counts_values_ge() {
-        let sorted: FloatVector<f64> = vec![1.0, 2.0, 2.0, 3.0];
-        let d = 4.0;
-        assert_close(right_tail(&sorted, 1.0, d), 4.0 / d); // 1,2,2,3
-        assert_close(right_tail(&sorted, 2.0, d), 3.0 / d); // 2,2,3
-        assert_close(right_tail(&sorted, 3.0, d), 1.0 / d); // 3
-    }
-
-    #[test]
-    fn left_tail_counts_values_le() {
-        let sorted: FloatVector<f64> = vec![1.0, 2.0, 2.0, 3.0];
-        let d = 4.0;
-        assert_close(left_tail(&sorted, 1.0, d), 1.0 / d); // 1
-        assert_close(left_tail(&sorted, 2.0, d), 3.0 / d); // 1,2,2
-        assert_close(left_tail(&sorted, 3.0, d), 4.0 / d); // 1,2,2,3
-    }
 
     // Merge
     #[test]
