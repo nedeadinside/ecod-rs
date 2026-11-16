@@ -322,14 +322,14 @@ ECOD(contamination=0.1, method="max", n_jobs=1)</code></pre>
 <h3><code>fit(x) -&gt; self</code></h3>
 <p>Fits the model on <code>x</code> of shape <code>(n_samples, n_features)</code> and returns the model itself, so calls can be chained.</p>
 
-<h3><code>decision_function(x) -&gt; list[float]</code></h3>
-<p>Score of each row. See <a href="#decision-function">decision_function</a>.</p>
+<h3><code>decision_function(x) -&gt; ndarray</code></h3>
+<p>Score of each row, a <code>float64</code> array of shape <code>(n_samples,)</code>. See <a href="#decision-function">decision_function</a>.</p>
 
-<h3><code>predict(x) -&gt; list[int]</code></h3>
-<p>Label of each row, 1 for outliers. See <a href="#predict">predict</a>.</p>
+<h3><code>predict(x) -&gt; ndarray</code></h3>
+<p>Label of each row, 1 for outliers, an <code>int64</code> array of shape <code>(n_samples,)</code>. See <a href="#predict">predict</a>.</p>
 
-<h3><code>predict_proba(x, method="linear") -&gt; list[[float, float]]</code></h3>
-<p><code>[inlier, outlier]</code> probabilities of each row, <code>method</code> is <code>"linear"</code> or <code>"unify"</code>. See <a href="#predict-proba">predict_proba</a>.</p>
+<h3><code>predict_proba(x, method="linear") -&gt; ndarray</code></h3>
+<p><code>[inlier, outlier]</code> probabilities of each row, a <code>float64</code> array of shape <code>(n_samples, 2)</code>; <code>method</code> is <code>"linear"</code> or <code>"unify"</code>. See <a href="#predict-proba">predict_proba</a>.</p>
 
 <h3><code>save(path, *, compression_level=None)</code></h3>
 <p>Writes the fitted model to a file. See <a href="#persistence">Saving and loading</a>.</p>
@@ -344,7 +344,7 @@ ECOD(contamination=0.1, method="max", n_jobs=1)</code></pre>
   <li>A 2-D numpy <code>float64</code> array is read in place, without a copy. Non-contiguous views such as slices and transposes work too.</li>
   <li>Other dtypes and lists of lists are converted to <code>float64</code> first, which costs a copy.</li>
   <li>Values must be finite: <code>NaN</code> and <code>inf</code> raise <code>ValueError</code>.</li>
-  <li>Results are returned as Python lists; wrap them in <code>np.asarray</code> if you need an array.</li>
+  <li>Results are returned as numpy arrays, as in scikit-learn.</li>
 </ul>
 
 <h2 id="parallelism">Parallelism</h2>
