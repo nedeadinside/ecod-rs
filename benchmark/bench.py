@@ -44,6 +44,9 @@ PHASES = [
     ("load", "compressed"),
 ]
 METRICS = ["wall_median_s", "peak_mb", "disk_mb", "auc"]
+# Extra runs on synthetic data with every library on all cores, stored as a variant
+ALL_CORES = "all-cores"
+PARALLEL_PHASES = ["fit", "score", "pipeline"]
 
 RS = {"ECOD": ECOD, "InductiveECOD": InductiveECOD}
 RS_LEVEL = {"default": 3, "compressed": 19}
@@ -55,7 +58,8 @@ INTRO = f"""<h1>ecod-rs benchmark</h1>
 Here it is compared with ECOD from <a href="https://github.com/yzhao062/pyod">PyOD</a>.</p>
 <p>Data is random normal noise of several sizes (rows x features) and the classical datasets from
 <a href="https://github.com/Minqi824/ADBench">ADBench</a>. Each dataset is split 60/40 into train and test.
-Every measurement runs in a fresh single-threaded process, times are taken over {REPEATS} runs.</p>
+Every measurement runs in a fresh process, times are taken over {REPEATS} runs.
+All tables except Parallelism use one thread: <code>n_jobs=1</code> for both libraries.</p>
 <p>What is measured:</p>
 <ul>
 <li>fit: training, including conversion from numpy;</li>
@@ -122,17 +126,31 @@ def dataset_name(source: tuple[int, int] | str) -> str:
     )
 
 
-def fit(lib: str, x: np.ndarray):
+def n_jobs(lib: str, variant: str) -> int:
+    """
+    Thread count argument for a library.
+
+    :param lib: Library label.
+    :param variant: Variant of the measurement, ALL_CORES means every core.
+    :return: n_jobs value, all cores is -1 in PyOD and 0 in ecod-rs.
+    """
+    if variant != ALL_CORES:
+        return 1
+    return -1 if lib == "pyod-ECOD" else 0
+
+
+def fit(lib: str, x: np.ndarray, variant: str = ""):
     """
     Fit a fresh model on numpy data, including any input conversion.
 
     :param lib: Library label.
     :param x: Train matrix.
+    :param variant: Variant of the measurement, ALL_CORES runs on every core.
     :return: Fitted model.
     """
     if lib == "pyod-ECOD":
-        return PyodECOD(n_jobs=1).fit(x)
-    return RS[lib](method="pyod-max").fit(x)
+        return PyodECOD(n_jobs=n_jobs(lib, variant)).fit(x)
+    return RS[lib](method="pyod-max", n_jobs=n_jobs(lib, variant)).fit(x)
 
 
 def score(lib: str, model, x: np.ndarray):
@@ -186,16 +204,16 @@ def make_action(
 
     :param lib: Library label.
     :param phase: Phase name.
-    :param variant: Compression variant for save and load.
+    :param variant: Compression variant for save and load, ALL_CORES for fit, score and pipeline.
     :param x_train: Train matrix.
     :param x_test: Test matrix.
     :param path: Model file for save and load.
     :return: Zero-argument callable.
     """
     if phase == "fit":
-        return lambda: fit(lib, x_train)
+        return lambda: fit(lib, x_train, variant)
     if phase == "pipeline":
-        return lambda: score(lib, fit(lib, x_train), x_test)
+        return lambda: score(lib, fit(lib, x_train, variant), x_test)
     if phase == "convert":
         bad = x_train.copy()
         bad[0, 0] = np.nan
@@ -214,7 +232,7 @@ def make_action(
 
         return convert
 
-    model = fit(lib, x_train)
+    model = fit(lib, x_train, variant if phase == "score" else "")
     if phase == "score":
         return lambda: score(lib, model, x_test)
     if phase == "save":
@@ -451,6 +469,25 @@ def write_html() -> None:
             for v in ("default", "compressed")
         ],
     )
+    def scaling(dataset: str, lib: str, phase: str) -> str:
+        """
+        All-cores time with the speedup over the same library on one thread in brackets.
+
+        :return: Cell text.
+        """
+        own = get(dataset, lib, phase, ALL_CORES, "wall_median_s")
+        single = get(dataset, lib, phase, "", "wall_median_s")
+        if not own:
+            return "-"
+        if not single:
+            return fmt(own)
+        return f"{fmt(own)} (×{float(single) / float(own):.1f})"
+
+    parallel = html_table(
+        ["dataset"],
+        {f"{p}, s": LIBS for p in PARALLEL_PHASES},
+        [[d, *[scaling(d, lib, p) for p in PARALLEL_PHASES for lib in LIBS]] for d in synth],
+    )
     quality = html_table(
         ["dataset"],
         {"ROC AUC": LIBS},
@@ -489,6 +526,14 @@ def write_html() -> None:
         f"<details>\n<summary>ADBench datasets</summary>\n{memory(adbench)}\n</details>",
         "<h2>Saving and loading</h2>",
         persistence,
+        "<h2>Parallelism</h2>",
+        (
+            f"<p>Every library on all {len(os.sched_getaffinity(0))} cores: "
+            "<code>n_jobs=0</code> in ecod-rs, <code>n_jobs=-1</code> in PyOD. "
+            "Median time in seconds, in brackets how many times faster than the same "
+            "library on one thread. Scores do not depend on the thread count.</p>"
+        ),
+        parallel,
         "<h2>Quality</h2>",
         "<p>ROC AUC on the ADBench test part.</p>",
         quality,
@@ -512,6 +557,12 @@ if __name__ == "__main__":
         for lib in LIBS
         for phase, variant in PHASES
         if not (phase == "convert" and lib == "pyod-ECOD")
+    ]
+    tasks += [
+        (lib, source, phase, ALL_CORES)
+        for source in SIZES
+        for lib in LIBS
+        for phase in PARALLEL_PHASES
     ]
 
     rows = []

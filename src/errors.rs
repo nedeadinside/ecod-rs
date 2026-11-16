@@ -36,6 +36,11 @@ pub enum Error {
         /// Passed contamination.
         value: f64,
     },
+    /// n_jobs is negative.
+    InvalidNJobs {
+        /// Passed n_jobs.
+        value: i32,
+    },
 }
 
 /// Invariant broken in a loaded model.
@@ -72,6 +77,9 @@ impl std::fmt::Display for Error {
             Error::Decompress => write!(f, "failed to decompress model bytes"),
             Error::InvalidContamination { value } => {
                 write!(f, "contamination must be in (0, 0.5], got {value}")
+            }
+            Error::InvalidNJobs { value } => {
+                write!(f, "n_jobs must be >= 0 (0 = all cores), got {value}")
             }
         }
     }

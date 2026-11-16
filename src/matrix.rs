@@ -67,6 +67,19 @@ impl<'a, T: Copy> Matrix<'a, T> {
                 .copied()
         })
     }
+
+    /// Borrowed view over a range of rows, range must be non-empty and within nrows.
+    pub fn rows(&self, range: std::ops::Range<usize>) -> Matrix<'_, T> {
+        assert!(
+            range.start < range.end && range.end <= self.shape[0],
+            "row range is out of bounds"
+        );
+        Matrix {
+            data: Cow::Borrowed(&self.data[range.start * self.strides[0]..]),
+            shape: [range.len(), self.shape[1]],
+            strides: self.strides,
+        }
+    }
 }
 
 impl<T: Copy> Matrix<'static, T> {

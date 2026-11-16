@@ -1,7 +1,8 @@
 use num_traits::float::{Float, TotalOrder};
+use rayon::prelude::*;
 
 use super::common::{
-    compute_score, compute_skewnesses, compute_threshold, ranks, validate_contamination,
+    compute_score, compute_skewnesses, compute_threshold, par_rows, ranks, validate_contamination,
     validate_finite, validate_finity, validate_shape,
 };
 use crate::errors::{CorruptionKind, Error};
@@ -10,8 +11,17 @@ use crate::types::{
     ECODScoreMethod, Fit, FloatMatrix, FloatVector, Predict, TrainScores, Validate,
 };
 
-/// Outlier scores of x against sorted train features
-fn decision_scores<T: Float + TotalOrder>(
+/// Outlier scores of x against sorted train features, row chunks in parallel
+fn decision_scores<T: Float + TotalOrder + Send + Sync>(
+    data: &FloatMatrix<T>,
+    skewnesses: &FloatVector<T>,
+    method: ECODScoreMethod,
+    x: &Matrix<'_, T>,
+) -> FloatVector<T> {
+    par_rows(x, |chunk| chunk_scores(data, skewnesses, method, chunk))
+}
+
+fn chunk_scores<T: Float + TotalOrder>(
     data: &FloatMatrix<T>,
     skewnesses: &FloatVector<T>,
     method: ECODScoreMethod,
@@ -101,21 +111,22 @@ pub struct InductiveECODModel<T> {
     train_score: TrainScores<T>,
 }
 
-impl<T: Float + TotalOrder> InductiveECODModel<T> {
+impl<T: Float + TotalOrder + Send + Sync> InductiveECODModel<T> {
     fn new(
         x: &Matrix<'_, T>,
         contamination: f64,
         method: ECODScoreMethod,
     ) -> InductiveECODModel<T> {
-        let data: Vec<Vec<T>> = x
-            .cols()
+        let cols: Vec<_> = x.cols().collect();
+        let data: Vec<Vec<T>> = cols
+            .par_iter()
             .map(|col| {
-                let mut v: Vec<T> = col.collect();
-                v.sort_by(|a, b| a.total_cmp(b));
+                let mut v: Vec<T> = col.clone().collect();
+                v.sort_unstable_by(|a, b| a.total_cmp(b));
                 v
             })
             .collect();
-        let skewnesses = compute_skewnesses(x.cols(), method);
+        let skewnesses = compute_skewnesses(cols.par_iter().cloned(), method);
         let train_scores = decision_scores(&data, &skewnesses, method, x);
 
         let threshold = compute_threshold(&train_scores, 100.0 * (1.0 - contamination));
@@ -141,7 +152,7 @@ impl<T> InductiveECODModel<T> {
     }
 }
 
-impl<T: Float + TotalOrder> Fit<T> for InductiveECOD {
+impl<T: Float + TotalOrder + Send + Sync> Fit<T> for InductiveECOD {
     type Model = InductiveECODModel<T>;
 
     fn fit(&self, x: &Matrix<'_, T>) -> Result<Self::Model, Error> {
@@ -151,7 +162,7 @@ impl<T: Float + TotalOrder> Fit<T> for InductiveECOD {
     }
 }
 
-impl<T: Float + TotalOrder> Predict<T> for InductiveECODModel<T> {
+impl<T: Float + TotalOrder + Send + Sync> Predict<T> for InductiveECODModel<T> {
     fn internal_decision_function(
         &self,
         x: &Matrix<'_, T>,
