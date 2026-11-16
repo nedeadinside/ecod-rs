@@ -6,6 +6,7 @@ use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 
 pub mod algorithms;
 pub mod errors;
@@ -67,11 +68,22 @@ fn as_matrix<'a>(
     Ok(Matrix::from_vec(buf.to_vec(x.py())?, shape)?)
 }
 
+/// Builds a local pool, n_jobs: 0 = all cores, n > 0 = n threads.
+fn build_pool(n_jobs: i32) -> PyResult<ThreadPool> {
+    let n = usize::try_from(n_jobs).map_err(|_| Error::InvalidNJobs { value: n_jobs })?;
+    // rayon clamps num_threads to max_num_threads() itself
+    ThreadPoolBuilder::new()
+        .num_threads(n)
+        .build()
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
 /// Python wrapper over InductiveECODModel.
 #[pyclass(name = "InductiveECOD")]
 pub struct PyInductiveECOD {
     estimator: InductiveECOD,
     model: Option<InductiveECODModel<f64>>,
+    pool: ThreadPool,
 }
 
 /// Python wrapper over ECODModel.
@@ -79,6 +91,7 @@ pub struct PyInductiveECOD {
 pub struct PyECOD {
     estimator: ECOD,
     model: Option<ECODModel<f64>>,
+    pool: ThreadPool,
 }
 
 impl FromPyObject<'_, '_> for ECODScoreMethod {
@@ -117,11 +130,12 @@ impl FromPyObject<'_, '_> for ECODProbaMethod {
 #[pymethods]
 impl PyInductiveECOD {
     #[new]
-    #[pyo3(signature = (contamination = 0.1, method = ECODScoreMethod::MAX))]
-    fn new(contamination: f64, method: ECODScoreMethod) -> PyResult<Self> {
+    #[pyo3(signature = (contamination = 0.1, method = ECODScoreMethod::MAX, n_jobs = 1))]
+    fn new(contamination: f64, method: ECODScoreMethod, n_jobs: i32) -> PyResult<Self> {
         Ok(Self {
             estimator: InductiveECOD::new(contamination, method)?,
             model: None,
+            pool: build_pool(n_jobs)?,
         })
     }
 
@@ -131,8 +145,8 @@ impl PyInductiveECOD {
     ) -> PyResult<PyRefMut<'py, Self>> {
         let mut slot = None;
         let x = as_matrix(x, &mut slot)?;
-        let estimator = &slf.estimator;
-        let model = slf.py().detach(|| estimator.fit(&x))?;
+        let (estimator, pool) = (&slf.estimator, &slf.pool);
+        let model = slf.py().detach(|| pool.install(|| estimator.fit(&x)))?;
         slf.model = Some(model);
         Ok(slf)
     }
@@ -149,7 +163,7 @@ impl PyInductiveECOD {
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.decision_function(&x))?)
+        Ok(py.detach(|| self.pool.install(|| model.decision_function(&x)))?)
     }
 
     #[pyo3(signature = (x))]
@@ -160,7 +174,7 @@ impl PyInductiveECOD {
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.predict(&x))?)
+        Ok(py.detach(|| self.pool.install(|| model.predict(&x)))?)
     }
 
     #[pyo3(signature = (x, method = ECODProbaMethod::LINEAR))]
@@ -176,7 +190,7 @@ impl PyInductiveECOD {
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.predict_proba(&x, method))?)
+        Ok(py.detach(|| self.pool.install(|| model.predict_proba(&x, method)))?)
     }
 
     #[pyo3(signature = (path, *, compression_level = None))]
@@ -189,11 +203,13 @@ impl PyInductiveECOD {
     }
 
     #[staticmethod]
-    fn load(py: Python<'_>, path: PathBuf) -> PyResult<Self> {
+    #[pyo3(signature = (path, *, n_jobs = 1))]
+    fn load(py: Python<'_>, path: PathBuf, n_jobs: i32) -> PyResult<Self> {
         let model: InductiveECODModel<f64> = py.detach(|| InductiveECODModel::load(path))?;
         Ok(Self {
             estimator: InductiveECOD::new(model.contamination(), model.method())?,
             model: Some(model),
+            pool: build_pool(n_jobs)?,
         })
     }
 }
@@ -201,11 +217,12 @@ impl PyInductiveECOD {
 #[pymethods]
 impl PyECOD {
     #[new]
-    #[pyo3(signature = (contamination = 0.1, method = ECODScoreMethod::MAX))]
-    fn new(contamination: f64, method: ECODScoreMethod) -> PyResult<Self> {
+    #[pyo3(signature = (contamination = 0.1, method = ECODScoreMethod::MAX, n_jobs = 1))]
+    fn new(contamination: f64, method: ECODScoreMethod, n_jobs: i32) -> PyResult<Self> {
         Ok(Self {
             estimator: ECOD::new(contamination, method)?,
             model: None,
+            pool: build_pool(n_jobs)?,
         })
     }
 
@@ -215,8 +232,8 @@ impl PyECOD {
     ) -> PyResult<PyRefMut<'py, Self>> {
         let mut slot = None;
         let x = as_matrix(x, &mut slot)?;
-        let estimator = &slf.estimator;
-        let model = slf.py().detach(|| estimator.fit(&x))?;
+        let (estimator, pool) = (&slf.estimator, &slf.pool);
+        let model = slf.py().detach(|| pool.install(|| estimator.fit(&x)))?;
         slf.model = Some(model);
         Ok(slf)
     }
@@ -233,7 +250,7 @@ impl PyECOD {
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.decision_function(&x))?)
+        Ok(py.detach(|| self.pool.install(|| model.decision_function(&x)))?)
     }
 
     #[pyo3(signature = (x))]
@@ -244,7 +261,7 @@ impl PyECOD {
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.predict(&x))?)
+        Ok(py.detach(|| self.pool.install(|| model.predict(&x)))?)
     }
 
     #[pyo3(signature = (x, method = ECODProbaMethod::LINEAR))]
@@ -260,7 +277,7 @@ impl PyECOD {
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| model.predict_proba(&x, method))?)
+        Ok(py.detach(|| self.pool.install(|| model.predict_proba(&x, method)))?)
     }
 
     #[pyo3(signature = (path, *, compression_level = None))]
@@ -273,11 +290,13 @@ impl PyECOD {
     }
 
     #[staticmethod]
-    fn load(py: Python<'_>, path: PathBuf) -> PyResult<Self> {
+    #[pyo3(signature = (path, *, n_jobs = 1))]
+    fn load(py: Python<'_>, path: PathBuf, n_jobs: i32) -> PyResult<Self> {
         let model: ECODModel<f64> = py.detach(|| ECODModel::load(path))?;
         Ok(Self {
             estimator: ECOD::new(model.contamination(), model.method())?,
             model: Some(model),
+            pool: build_pool(n_jobs)?,
         })
     }
 }
