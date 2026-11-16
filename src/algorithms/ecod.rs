@@ -1,7 +1,8 @@
 use num_traits::float::{Float, TotalOrder};
+use rayon::prelude::*;
 
 use super::common::{
-    compute_score, compute_skewnesses, compute_threshold, ranks, validate_contamination,
+    compute_score, compute_skewnesses, compute_threshold, par_rows, ranks, validate_contamination,
     validate_finite, validate_finity, validate_shape,
 };
 use crate::errors::{CorruptionKind, Error};
@@ -11,38 +12,48 @@ use crate::types::{
 };
 
 /// Function that merges a sorted feature matrix with an unsorted one.
-fn merge<T: Float + TotalOrder>(
+fn merge<T: Float + TotalOrder + Send + Sync>(
     a: &FloatMatrix<T>,
     unsorted_data: &Matrix<'_, T>,
 ) -> FloatMatrix<T> {
-    let mut res: Vec<Vec<T>> = vec![];
+    let bcols: Vec<_> = unsorted_data.cols().collect();
+    a.par_iter()
+        .zip(bcols.par_iter())
+        .map(|(acol, bcol)| {
+            let mut b: Vec<T> = bcol.clone().collect();
+            b.sort_unstable_by(|l, r| l.total_cmp(r));
 
-    for (acol, bcol) in a.iter().zip(unsorted_data.cols()) {
-        let mut b: Vec<T> = bcol.collect();
-        b.sort_by(|l, r| l.total_cmp(r));
-
-        let mut res_col = Vec::with_capacity(acol.len() + b.len());
-        let (mut i, mut j) = (0, 0);
-        while i < acol.len() && j < b.len() {
-            if acol[i].total_cmp(&b[j]).is_le() {
-                res_col.push(acol[i]);
-                i += 1;
-            } else {
-                res_col.push(b[j]);
-                j += 1;
+            let mut res_col = Vec::with_capacity(acol.len() + b.len());
+            let (mut i, mut j) = (0, 0);
+            while i < acol.len() && j < b.len() {
+                if acol[i].total_cmp(&b[j]).is_le() {
+                    res_col.push(acol[i]);
+                    i += 1;
+                } else {
+                    res_col.push(b[j]);
+                    j += 1;
+                }
             }
-        }
-        res_col.extend_from_slice(&acol[i..]);
-        res_col.extend_from_slice(&b[j..]);
-
-        res.push(res_col);
-    }
-
-    res
+            res_col.extend_from_slice(&acol[i..]);
+            res_col.extend_from_slice(&b[j..]);
+            res_col
+        })
+        .collect()
 }
 
-/// Outlier scores of x against sorted features that already contain x
-fn decision_scores<T: Float + TotalOrder>(
+/// Outlier scores of x against sorted features that already contain x, row chunks in parallel
+fn decision_scores<T: Float + TotalOrder + Send + Sync>(
+    sorted_data: &FloatMatrix<T>,
+    skewnesses: &FloatVector<T>,
+    method: ECODScoreMethod,
+    x: &Matrix<'_, T>,
+) -> FloatVector<T> {
+    par_rows(x, |chunk| {
+        chunk_scores(sorted_data, skewnesses, method, chunk)
+    })
+}
+
+fn chunk_scores<T: Float + TotalOrder>(
     sorted_data: &FloatMatrix<T>,
     skewnesses: &FloatVector<T>,
     method: ECODScoreMethod,
@@ -132,18 +143,20 @@ pub struct ECODModel<T> {
     train_score: TrainScores<T>,
 }
 
-impl<T: Float + TotalOrder> ECODModel<T> {
+impl<T: Float + TotalOrder + Send + Sync> ECODModel<T> {
     fn new(x: &Matrix<'_, T>, contamination: f64, method: ECODScoreMethod) -> ECODModel<T> {
-        let data: FloatMatrix<T> = x
-            .cols()
+        let cols: Vec<_> = x.cols().collect();
+
+        let data: FloatMatrix<T> = cols
+            .par_iter()
             .map(|col| {
-                let mut v: Vec<T> = col.collect();
-                v.sort_by(|a, b| a.total_cmp(b));
+                let mut v: Vec<T> = col.clone().collect();
+                v.sort_unstable_by(|a, b| a.total_cmp(b));
                 v
             })
             .collect();
         // Train sample is scored against itself, so data already contains x
-        let skewnesses = compute_skewnesses(x.cols(), method);
+        let skewnesses = compute_skewnesses(cols.par_iter().cloned(), method);
         let train_scores = decision_scores(&data, &skewnesses, method, x);
 
         let threshold = compute_threshold(&train_scores, 100.0 * (1.0 - contamination));
@@ -163,7 +176,8 @@ impl<T: Float + TotalOrder> ECODModel<T> {
         validate_finite(x)?;
 
         let merged = merge(&self.data, x);
-        let skewnesses = compute_skewnesses(merged.iter().map(|c| c.iter().copied()), self.method);
+        let skewnesses =
+            compute_skewnesses(merged.par_iter().map(|c| c.iter().copied()), self.method);
         Ok(decision_scores(&merged, &skewnesses, self.method, x))
     }
 }
@@ -178,7 +192,7 @@ impl<T> ECODModel<T> {
     }
 }
 
-impl<T: Float + TotalOrder> Fit<T> for ECOD {
+impl<T: Float + TotalOrder + Send + Sync> Fit<T> for ECOD {
     type Model = ECODModel<T>;
 
     fn fit(&self, x: &Matrix<'_, T>) -> Result<Self::Model, Error> {
@@ -188,7 +202,7 @@ impl<T: Float + TotalOrder> Fit<T> for ECOD {
     }
 }
 
-impl<T: Float + TotalOrder> Predict<T> for ECODModel<T> {
+impl<T: Float + TotalOrder + Send + Sync> Predict<T> for ECODModel<T> {
     fn internal_decision_function(
         &self,
         x: &Matrix<'_, T>,

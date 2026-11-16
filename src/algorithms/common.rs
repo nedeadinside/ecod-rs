@@ -4,6 +4,7 @@ use crate::types::{ECODScoreMethod, FloatMatrix, FloatVector};
 
 use num_traits::Float;
 use num_traits::float::TotalOrder;
+use rayon::prelude::*;
 
 /// Computes the score as the negative sum of natural logarithms of the input values.
 pub fn compute_score<T: Float>(scores: &mut FloatVector<T>, probs: impl Iterator<Item = T>) {
@@ -14,6 +15,32 @@ pub fn compute_score<T: Float>(scores: &mut FloatVector<T>, probs: impl Iterator
             *score = *score - p.ln();
         }
     }
+}
+
+/// Rows times columns below which a chunk is not worth a separate task.
+// ponytail: guessed, tune from benchmark/bench.py once it has an n_jobs axis
+const MIN_CHUNK_WORK: usize = 1 << 14;
+
+/// Scores row chunks of x in parallel on the current rayon pool and concatenates them.
+///
+/// Each row's score depends only on that row, so chunking does not change results.
+pub fn par_rows<T, F>(x: &Matrix<'_, T>, score: F) -> FloatVector<T>
+where
+    T: Copy + Send + Sync,
+    F: Fn(&Matrix<'_, T>) -> FloatVector<T> + Sync,
+{
+    let n = x.nrows();
+    let per_thread = n.div_ceil(rayon::current_num_threads());
+    let chunk = per_thread.max(MIN_CHUNK_WORK.div_ceil(x.ncols()));
+    if chunk >= n {
+        return score(x);
+    }
+    let starts: Vec<usize> = (0..n).step_by(chunk).collect();
+    starts
+        .into_par_iter()
+        .map(|s| score(&x.rows(s..(s + chunk).min(n))))
+        .collect::<Vec<_>>()
+        .concat()
 }
 
 /// Partition point of sorted starting from given index, exponential search
@@ -94,17 +121,18 @@ pub fn compute_skewness<T: Float>(col: impl ExactSizeIterator<Item = T> + Clone)
 }
 
 /// Per-feature skewnesses, zeros for methods that do not pick tails by skewness.
+/// Columns run in parallel, each column is summed sequentially, so results do not depend on threads.
 pub fn compute_skewnesses<T, C>(
-    cols: impl Iterator<Item = C>,
+    cols: impl IndexedParallelIterator<Item = C>,
     method: ECODScoreMethod,
 ) -> FloatVector<T>
 where
-    T: Float,
-    C: ExactSizeIterator<Item = T> + Clone,
+    T: Float + Send,
+    C: ExactSizeIterator<Item = T> + Clone + Send,
 {
     match method {
         ECODScoreMethod::AUTO | ECODScoreMethod::MAX => cols.map(compute_skewness).collect(),
-        _ => vec![T::zero(); cols.count()],
+        _ => vec![T::zero(); cols.len()],
     }
 }
 
