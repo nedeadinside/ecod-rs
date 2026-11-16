@@ -24,7 +24,9 @@ def test_save_load_roundtrip(
     model = model_cls().fit(x)
     path = tmp_path / "model.bin"
     model.save(path, compression_level=level)
-    assert model_cls.load(path).decision_function(x) == model.decision_function(x)
+    np.testing.assert_array_equal(
+        model_cls.load(path).decision_function(x), model.decision_function(x)
+    )
 
 
 def test_save_before_fit_raises(tmp_path: Path, model_cls: type[InductiveECOD | ECOD]):
