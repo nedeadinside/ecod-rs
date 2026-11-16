@@ -4,7 +4,9 @@ from ecod_rs import ECOD, InductiveECOD
 
 
 @pytest.mark.parametrize("method", ["right", "left", "auto", "pyod-max", "max"])
-def test_scores_do_not_depend_on_n_jobs(model_cls: type[InductiveECOD | ECOD], method: str):
+def test_scores_do_not_depend_on_n_jobs(
+    model_cls: type[InductiveECOD | ECOD], method: str
+):
     """
     Check that scores are bit-identical for any thread count.
 
@@ -18,7 +20,9 @@ def test_scores_do_not_depend_on_n_jobs(model_cls: type[InductiveECOD | ECOD], m
     scores = []
     for n_jobs in (1, 4, 0):
         model = model_cls(method=method, n_jobs=n_jobs).fit(x)
-        scores.append((list(model.decision_function(x)), list(model.decision_function(x_new))))
+        scores.append(
+            (list(model.decision_function(x)), list(model.decision_function(x_new)))
+        )
     assert scores[0] == scores[1] == scores[2]
 
 
