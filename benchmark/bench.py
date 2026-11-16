@@ -350,7 +350,11 @@ def html_table(
         f'<th colspan="{len(cols)}">{g}</th>' for g, cols in groups.items()
     )
     sub = "".join(f"<th>{c}</th>" for cols in groups.values() for c in cols)
-    lines = ['<div class="table-wrap"><table class="nums">', f"<tr>{top}</tr>", f"<tr>{sub}</tr>"]
+    lines = [
+        '<div class="table-wrap"><table class="nums">',
+        f"<tr>{top}</tr>",
+        f"<tr>{sub}</tr>",
+    ]
     lines += ["<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>" for row in body]
     lines.append("</table></div>")
     return "\n".join(lines)
@@ -407,9 +411,7 @@ def write_html() -> None:
         ratios = [r for d in present if (r := speedup(d, lib, phase, variant))]
         if not ratios:
             return "-"
-        return (
-            f"{statistics.median(ratios):.1f}x ({min(ratios):.1f}x to {max(ratios):.1f}x)"
-        )
+        return f"{statistics.median(ratios):.1f}x ({min(ratios):.1f}x to {max(ratios):.1f}x)"
 
     def speed(datasets: list[str]) -> str:
         """
@@ -469,6 +471,7 @@ def write_html() -> None:
             for v in ("default", "compressed")
         ],
     )
+
     def scaling(dataset: str, lib: str, phase: str) -> str:
         """
         All-cores time with the speedup over the same library on one thread in brackets.
@@ -486,7 +489,10 @@ def write_html() -> None:
     parallel = html_table(
         ["dataset"],
         {f"{p}, s": LIBS for p in PARALLEL_PHASES},
-        [[d, *[scaling(d, lib, p) for p in PARALLEL_PHASES for lib in LIBS]] for d in synth],
+        [
+            [d, *[scaling(d, lib, p) for p in PARALLEL_PHASES for lib in LIBS]]
+            for d in synth
+        ],
     )
     quality = html_table(
         ["dataset"],

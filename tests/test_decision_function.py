@@ -1,5 +1,3 @@
-import math
-
 import numpy as np
 import pytest
 from ecod_rs import ECOD, InductiveECOD
@@ -7,15 +5,16 @@ from ecod_rs import ECOD, InductiveECOD
 
 def test_scores_shape(data: np.ndarray, model_cls: type[InductiveECOD | ECOD]):
     """
-    Check that scoring yields one finite float per predicted sample.
+    Check that scoring yields a float64 array with one finite score per sample.
 
     :param data: Gaussian feature matrix.
     :param model_cls: Model class under test.
     """
     model = model_cls().fit(data.tolist())
     scores = model.decision_function(data[:7].tolist())
-    assert len(scores) == 7
-    assert all(isinstance(s, float) and math.isfinite(s) for s in scores)
+    assert isinstance(scores, np.ndarray)
+    assert scores.dtype == np.float64 and scores.shape == (7,)
+    assert np.isfinite(scores).all()
 
 
 def test_default_method_is_max(data: np.ndarray, model_cls: type[InductiveECOD | ECOD]):
@@ -27,7 +26,9 @@ def test_default_method_is_max(data: np.ndarray, model_cls: type[InductiveECOD |
     """
     x = data.tolist()
     default = model_cls().fit(x).decision_function(x)
-    assert default == model_cls(method="max").fit(x).decision_function(x)
+    np.testing.assert_array_equal(
+        default, model_cls(method="max").fit(x).decision_function(x)
+    )
 
 
 def test_accepts_numpy(data: np.ndarray, model_cls: type[InductiveECOD | ECOD]):
@@ -39,7 +40,7 @@ def test_accepts_numpy(data: np.ndarray, model_cls: type[InductiveECOD | ECOD]):
     """
     from_list = model_cls().fit(data.tolist()).decision_function(data.tolist())
     from_numpy = model_cls().fit(data).decision_function(data)
-    assert from_list == from_numpy
+    np.testing.assert_array_equal(from_list, from_numpy)
 
 
 @pytest.mark.parametrize(
@@ -67,7 +68,7 @@ def test_numpy_layouts_match_lists(
     """
     x = layout(data)
     from_list = model_cls().fit(x.tolist()).decision_function(x.tolist())
-    assert model_cls().fit(x).decision_function(x) == from_list
+    np.testing.assert_array_equal(model_cls().fit(x).decision_function(x), from_list)
 
 
 def test_float32_input_is_accepted(
@@ -83,7 +84,7 @@ def test_float32_input_is_accepted(
     expected = (
         model_cls().fit(x.astype(np.float64)).decision_function(x.astype(np.float64))
     )
-    assert model_cls().fit(x).decision_function(x) == expected
+    np.testing.assert_array_equal(model_cls().fit(x).decision_function(x), expected)
 
 
 @pytest.mark.parametrize("method", ["linear", "unify"])
@@ -97,8 +98,9 @@ def test_predict_proba_shape(
     :param model_cls: Model class under test.
     :param method: Probability conversion method.
     """
-    proba = np.array(model_cls().fit(data).predict_proba(data[:7], method))
-    assert proba.shape == (7, 2)
+    proba = model_cls().fit(data).predict_proba(data[:7], method)
+    assert isinstance(proba, np.ndarray)
+    assert proba.dtype == np.float64 and proba.shape == (7, 2)
     assert np.allclose(proba.sum(axis=1), 1.0)
     assert ((proba >= 0) & (proba <= 1)).all()
 
