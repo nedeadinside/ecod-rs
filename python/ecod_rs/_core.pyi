@@ -3,6 +3,9 @@ import os
 from collections.abc import Buffer, Sequence
 from typing import Literal, Self, final
 
+import numpy as np
+import numpy.typing as npt
+
 type ECODScoreMethod = Literal["left", "right", "max", "pyod-max", "auto"]
 type ECODProbaMethod = Literal["linear", "unify"]
 type Matrix = Sequence[Sequence[float]] | Buffer
@@ -10,14 +13,17 @@ type Matrix = Sequence[Sequence[float]] | Buffer
 @final
 class InductiveECOD:
     def __init__(
-        self, contamination: float = 0.1, method: ECODScoreMethod = "max", n_jobs: int = 1
+        self,
+        contamination: float = 0.1,
+        method: ECODScoreMethod = "max",
+        n_jobs: int = 1,
     ): ...
     def fit(self, x: Matrix) -> Self: ...
-    def decision_function(self, x: Matrix) -> Sequence[float]: ...
-    def predict(self, x: Matrix) -> Sequence[int]: ...
+    def decision_function(self, x: Matrix) -> npt.NDArray[np.float64]: ...
+    def predict(self, x: Matrix) -> npt.NDArray[np.int64]: ...
     def predict_proba(
         self, x: Matrix, method: ECODProbaMethod = "linear"
-    ) -> Sequence[Sequence[float]]:
+    ) -> npt.NDArray[np.float64]:
         """Return shape (n_samples, 2): [inlier, outlier] per row, as in PyOD."""
     def save(
         self, path: str | os.PathLike[str], *, compression_level: int | None = None
@@ -30,15 +36,18 @@ class ECOD:
     """Transductive: each sample's score depends on the whole batch passed to decision_function."""
 
     def __init__(
-        self, contamination: float = 0.1, method: ECODScoreMethod = "max", n_jobs: int = 1
+        self,
+        contamination: float = 0.1,
+        method: ECODScoreMethod = "max",
+        n_jobs: int = 1,
     ): ...
     def fit(self, x: Matrix) -> Self: ...
-    def decision_function(self, x: Matrix) -> Sequence[float]: ...
-    def predict(self, x: Matrix) -> Sequence[int]: ...
+    def decision_function(self, x: Matrix) -> npt.NDArray[np.float64]: ...
+    def predict(self, x: Matrix) -> npt.NDArray[np.int64]: ...
     def predict_proba(
         self, x: Matrix, method: ECODProbaMethod = "linear"
-    ) -> Sequence[Sequence[float]]:
-        """Return [inlier, outlier] probabilities, one list per class."""
+    ) -> npt.NDArray[np.float64]:
+        """Return shape (n_samples, 2): [inlier, outlier] per row, as in PyOD."""
     def save(
         self, path: str | os.PathLike[str], *, compression_level: int | None = None
     ) -> None: ...

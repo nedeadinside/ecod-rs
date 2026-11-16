@@ -2,6 +2,7 @@ use std::io;
 use std::path::PathBuf;
 use std::slice;
 
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods};
 use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -17,7 +18,7 @@ use algorithms::ecod::{ECOD, ECODModel};
 use algorithms::inductive_ecod::{InductiveECOD, InductiveECODModel};
 use errors::Error;
 use matrix::{Matrix, span};
-use types::{ECODProbaMethod, ECODScoreMethod, Fit, FloatVector, Predict};
+use types::{ECODProbaMethod, ECODScoreMethod, Fit, Predict};
 
 use crate::types::Persist;
 
@@ -152,45 +153,55 @@ impl PyInductiveECOD {
     }
 
     #[pyo3(signature = (x))]
-    fn decision_function(
+    fn decision_function<'py>(
         &self,
-        py: Python<'_>,
-        x: &Bound<'_, PyAny>,
-    ) -> PyResult<FloatVector<f64>> {
+        py: Python<'py>,
+        x: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
         let mut slot = None;
         let x = as_matrix(x, &mut slot)?;
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| self.pool.install(|| model.decision_function(&x)))?)
+        let scores = py.detach(|| self.pool.install(|| model.decision_function(&x)))?;
+        Ok(scores.into_pyarray(py))
     }
 
     #[pyo3(signature = (x))]
-    fn predict(&self, py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
+    fn predict<'py>(
+        &self,
+        py: Python<'py>,
+        x: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyArray1<i64>>> {
         let mut slot = None;
         let x = as_matrix(x, &mut slot)?;
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| self.pool.install(|| model.predict(&x)))?)
+        let labels = py.detach(|| self.pool.install(|| model.predict(&x)))?;
+        // Core returns i32; widen to int64 as sklearn does
+        let labels: Vec<i64> = labels.into_iter().map(i64::from).collect();
+        Ok(labels.into_pyarray(py))
     }
 
     #[pyo3(signature = (x, method = ECODProbaMethod::LINEAR))]
-    fn predict_proba(
+    fn predict_proba<'py>(
         &self,
-        py: Python<'_>,
-        x: &Bound<'_, PyAny>,
+        py: Python<'py>,
+        x: &Bound<'py, PyAny>,
         method: ECODProbaMethod,
-    ) -> PyResult<Vec<[f64; 2]>> {
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
         let mut slot = None;
         let x = as_matrix(x, &mut slot)?;
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| self.pool.install(|| model.predict_proba(&x, method)))?)
+        let proba = py.detach(|| self.pool.install(|| model.predict_proba(&x, method)))?;
+        let n = proba.len();
+        proba.into_flattened().into_pyarray(py).reshape([n, 2])
     }
 
     #[pyo3(signature = (path, *, compression_level = None))]
@@ -239,45 +250,55 @@ impl PyECOD {
     }
 
     #[pyo3(signature = (x))]
-    fn decision_function(
+    fn decision_function<'py>(
         &self,
-        py: Python<'_>,
-        x: &Bound<'_, PyAny>,
-    ) -> PyResult<FloatVector<f64>> {
+        py: Python<'py>,
+        x: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
         let mut slot = None;
         let x = as_matrix(x, &mut slot)?;
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| self.pool.install(|| model.decision_function(&x)))?)
+        let scores = py.detach(|| self.pool.install(|| model.decision_function(&x)))?;
+        Ok(scores.into_pyarray(py))
     }
 
     #[pyo3(signature = (x))]
-    fn predict(&self, py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
+    fn predict<'py>(
+        &self,
+        py: Python<'py>,
+        x: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyArray1<i64>>> {
         let mut slot = None;
         let x = as_matrix(x, &mut slot)?;
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| self.pool.install(|| model.predict(&x)))?)
+        let labels = py.detach(|| self.pool.install(|| model.predict(&x)))?;
+        // Core returns i32; widen to int64 as sklearn does
+        let labels: Vec<i64> = labels.into_iter().map(i64::from).collect();
+        Ok(labels.into_pyarray(py))
     }
 
     #[pyo3(signature = (x, method = ECODProbaMethod::LINEAR))]
-    fn predict_proba(
+    fn predict_proba<'py>(
         &self,
-        py: Python<'_>,
-        x: &Bound<'_, PyAny>,
+        py: Python<'py>,
+        x: &Bound<'py, PyAny>,
         method: ECODProbaMethod,
-    ) -> PyResult<Vec<[f64; 2]>> {
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
         let mut slot = None;
         let x = as_matrix(x, &mut slot)?;
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("model is not fitted"))?;
-        Ok(py.detach(|| self.pool.install(|| model.predict_proba(&x, method)))?)
+        let proba = py.detach(|| self.pool.install(|| model.predict_proba(&x, method)))?;
+        let n = proba.len();
+        proba.into_flattened().into_pyarray(py).reshape([n, 2])
     }
 
     #[pyo3(signature = (path, *, compression_level = None))]
