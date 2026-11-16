@@ -1,14 +1,388 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<title>ecod-rs benchmark</title>
-<style>table { border-collapse: collapse; } th, td { border: 1px solid; }</style>
-<h1>ecod-rs benchmark</h1>
-<p><a href="https://github.com/nedeadinside/ecod-rs">ecod-rs</a> is a Rust implementation of the ECOD outlier detector
-(<a href="https://arxiv.org/abs/2201.00382">Li et al., 2022</a>) with Python bindings.
-Here it is compared with ECOD from <a href="https://github.com/yzhao062/pyod">PyOD</a>.</p>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ecod-rs</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --code-bg: #f6f8fa;
+  --link: #0969da;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --border: #3d444d;
+    --code-bg: #161b22;
+    --link: #4493f8;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: 64px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+}
+header nav {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  align-items: baseline;
+}
+header strong { font-size: 18px; margin-right: auto; }
+main { max-width: 960px; margin: 0 auto; padding: 8px 16px 64px; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: 32px; margin: 32px 0 8px; }
+h2 { font-size: 24px; margin: 56px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 18px; margin: 32px 0 8px; }
+p, ul { margin: 0 0 14px; }
+.lead { color: var(--muted); font-size: 18px; }
+code, pre { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; }
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  overflow-x: auto;
+}
+pre code { background: none; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 0 0 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
+td code { white-space: nowrap; }
+.nums td { white-space: nowrap; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border: 1px solid var(--border); }
+th { background: var(--code-bg); }
+.math { overflow-x: auto; margin: 0 0 14px; padding: 4px 0; }
+math { font-size: 18px; }
+mtd { text-align: left; padding: 2px 8px; }
+details { margin: 0 0 14px; }
+summary { cursor: pointer; color: var(--link); margin-bottom: 8px; }
+.toc { columns: 2; padding-left: 20px; }
+@media (max-width: 600px) { .toc { columns: 1; } }
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <strong>ecod-rs</strong>
+    <a href="#scoring">How it works</a>
+    <a href="#prediction">Prediction</a>
+    <a href="#benchmark">Benchmark</a>
+    <a href="https://github.com/nedeadinside/ecod-rs">GitHub</a>
+  </nav>
+</header>
+<main>
+
+<h1>ecod-rs</h1>
+<p class="lead">The ECOD outlier detector (<a href="https://arxiv.org/abs/2201.00382">Li et al., 2022</a>) in Rust, with Python bindings.</p>
+
+<ul class="toc">
+  <li><a href="#install">Install</a></li>
+  <li><a href="#quickstart">Quick start</a></li>
+  <li><a href="#models">ECOD vs InductiveECOD</a></li>
+  <li><a href="#constructor">Constructor</a></li>
+  <li><a href="#scoring">How scores are computed</a></li>
+  <li><a href="#prediction">Scores, labels and probabilities</a></li>
+  <li><a href="#methods">Methods</a></li>
+  <li><a href="#input">Input data</a></li>
+  <li><a href="#parallelism">Parallelism</a></li>
+  <li><a href="#persistence">Saving and loading</a></li>
+  <li><a href="#errors">Errors</a></li>
+  <li><a href="#benchmark">Benchmark</a></li>
+</ul>
+
+<h2 id="install">Install</h2>
+<p>Requires Python 3.12+.</p>
+<pre><code>pip install ecod-rs</code></pre>
+
+<h2 id="quickstart">Quick start</h2>
+<pre><code>import numpy as np
+from ecod_rs import InductiveECOD
+
+rng = np.random.default_rng(0)
+X_train = rng.normal(size=(1000, 10))
+X_test = rng.normal(size=(200, 10))
+
+model = InductiveECOD(contamination=0.1).fit(X_train)
+
+scores = model.decision_function(X_test)  # higher means more anomalous
+labels = model.predict(X_test)            # 1 is an outlier
+proba = model.predict_proba(X_test)       # (n, 2): [inlier, outlier]
+
+model.save("model.bin")
+model = InductiveECOD.load("model.bin")</code></pre>
+
+<h2 id="models">ECOD vs InductiveECOD</h2>
+<p>Both classes have the same interface. They differ in what a score depends on.</p>
+<div class="table-wrap"><table>
+  <tr><th></th><th><code>InductiveECOD</code></th><th><code>ECOD</code></th></tr>
+  <tr><td><code>fit</code></td><td>Sorts every feature of the training data and stores it.</td><td>Same.</td></tr>
+  <tr><td>Scoring</td><td>Each sample is compared with the training data only. Its score does not depend on the rest of the batch.</td><td>The batch is merged with the training data and every distribution is rebuilt, as in PyOD. A sample's score depends on the whole batch.</td></tr>
+  <tr><td>Use when</td><td>Scoring new data in production, one sample or many.</td><td>You need numbers that match PyOD.</td></tr>
+</table></div>
+<p>In PyOD, <code>fit</code> only stores the data, so its ECOD is always transductive (see PyOD issues <a href="https://github.com/yzhao062/pyod/issues/401">#401</a> and <a href="https://github.com/yzhao062/pyod/issues/426">#426</a>). <code>InductiveECOD</code> is the variant PyOD does not have.</p>
+
+<h2 id="constructor">Constructor</h2>
+<pre><code>InductiveECOD(contamination=0.1, method="max", n_jobs=1)
+ECOD(contamination=0.1, method="max", n_jobs=1)</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>contamination</code></td><td><code>0.1</code></td><td>Expected share of outliers, in <code>(0, 0.5]</code>. Only <code>predict</code> uses it, see <a href="#predict">predict</a>.</td></tr>
+  <tr><td><code>method</code></td><td><code>"max"</code></td><td>One of <code>"max"</code>, <code>"pyod-max"</code>, <code>"left"</code>, <code>"right"</code>, <code>"auto"</code>. How per-feature tail probabilities are combined into a score, see <a href="#score-methods">Score methods</a>.</td></tr>
+  <tr><td><code>n_jobs</code></td><td><code>1</code></td><td>Number of threads. <code>0</code> uses all cores. See <a href="#parallelism">Parallelism</a>.</td></tr>
+</table></div>
+
+<h2 id="scoring">How scores are computed</h2>
+<p>ECOD looks at every feature separately. For a value it asks how rare it is in the left tail (values this low or lower) and in the right tail (values this high or higher), then adds the negative logs over all features. Notation: the training data has <math><mi>n</mi></math> rows and <math><mi>d</mi></math> features, <math><msub><mi>x</mi><mrow><mi>i</mi><mi>j</mi></mrow></msub></math> is feature <math><mi>j</mi></math> of training row <math><mi>i</mi></math>, and <math><mi>x</mi><mo>=</mo><mo stretchy="false">(</mo><msub><mi>x</mi><mn>1</mn></msub><mo>,</mo><mo>&hellip;</mo><mo>,</mo><msub><mi>x</mi><mi>d</mi></msub><mo stretchy="false">)</mo></math> is the sample being scored.</p>
+
+<h3>Tail probabilities</h3>
+<p><code>InductiveECOD</code> counts training values only. One is added to the count and to the total, so a value outside the training range gets a small probability instead of zero:</p>
+<div class="math"><math display="block">
+  <msub><mi>L</mi><mi>j</mi></msub><mo stretchy="false">(</mo><mi>v</mi><mo stretchy="false">)</mo><mo>=</mo>
+  <mfrac>
+    <mrow><mo>#</mo><mo stretchy="false">{</mo><mi>i</mi><mo>:</mo><msub><mi>x</mi><mrow><mi>i</mi><mi>j</mi></mrow></msub><mo>&le;</mo><mi>v</mi><mo stretchy="false">}</mo><mo>+</mo><mn>1</mn></mrow>
+    <mrow><mi>n</mi><mo>+</mo><mn>1</mn></mrow>
+  </mfrac>
+  <mspace width="2em"></mspace>
+  <msub><mi>R</mi><mi>j</mi></msub><mo stretchy="false">(</mo><mi>v</mi><mo stretchy="false">)</mo><mo>=</mo>
+  <mfrac>
+    <mrow><mo>#</mo><mo stretchy="false">{</mo><mi>i</mi><mo>:</mo><msub><mi>x</mi><mrow><mi>i</mi><mi>j</mi></mrow></msub><mo>&ge;</mo><mi>v</mi><mo stretchy="false">}</mo><mo>+</mo><mn>1</mn></mrow>
+    <mrow><mi>n</mi><mo>+</mo><mn>1</mn></mrow>
+  </mfrac>
+</math></div>
+<p><code>ECOD</code> counts over <math><msub><mi>Z</mi><mi>j</mi></msub></math>, the training values of feature <math><mi>j</mi></math> together with the batch being scored, <math><mi>N</mi><mo>=</mo><mi>n</mi><mo>+</mo><mi>m</mi></math> values in total for a batch of <math><mi>m</mi></math> rows. The sample itself is in <math><msub><mi>Z</mi><mi>j</mi></msub></math>, so the counts are at least one:</p>
+<div class="math"><math display="block">
+  <msub><mi>L</mi><mi>j</mi></msub><mo stretchy="false">(</mo><mi>v</mi><mo stretchy="false">)</mo><mo>=</mo>
+  <mfrac>
+    <mrow><mo>#</mo><mo stretchy="false">{</mo><mi>z</mi><mo>&isin;</mo><msub><mi>Z</mi><mi>j</mi></msub><mo>:</mo><mi>z</mi><mo>&le;</mo><mi>v</mi><mo stretchy="false">}</mo></mrow>
+    <mi>N</mi>
+  </mfrac>
+  <mspace width="2em"></mspace>
+  <msub><mi>R</mi><mi>j</mi></msub><mo stretchy="false">(</mo><mi>v</mi><mo stretchy="false">)</mo><mo>=</mo>
+  <mfrac>
+    <mrow><mo>#</mo><mo stretchy="false">{</mo><mi>z</mi><mo>&isin;</mo><msub><mi>Z</mi><mi>j</mi></msub><mo>:</mo><mi>z</mi><mo>&ge;</mo><mi>v</mi><mo stretchy="false">}</mo></mrow>
+    <mi>N</mi>
+  </mfrac>
+</math></div>
+
+<h3>Skewness</h3>
+<p>The <code>"auto"</code> and <code>"max"</code> methods pick a tail per feature by the sign of its sample skewness. <code>InductiveECOD</code> computes it on the training data at <code>fit</code>, <code>ECOD</code> on <math><msub><mi>Z</mi><mi>j</mi></msub></math> for every batch:</p>
+<div class="math"><math display="block">
+  <msub><mi>&gamma;</mi><mi>j</mi></msub><mo>=</mo>
+  <mfrac><msub><mi>m</mi><mn>3</mn></msub><msubsup><mi>m</mi><mn>2</mn><mrow><mn>3</mn><mo>/</mo><mn>2</mn></mrow></msubsup></mfrac>
+  <mo>,</mo>
+  <mspace width="1em"></mspace>
+  <msub><mi>m</mi><mi>k</mi></msub><mo>=</mo>
+  <mfrac><mn>1</mn><mi>n</mi></mfrac>
+  <munderover><mo>&sum;</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></munderover>
+  <msup><mrow><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>i</mi><mi>j</mi></mrow></msub><mo>&minus;</mo><msub><mover><mi>x</mi><mo>&macr;</mo></mover><mi>j</mi></msub><mo stretchy="false">)</mo></mrow><mi>k</mi></msup>
+</math></div>
+<p>A constant feature has <math><msub><mi>m</mi><mn>2</mn></msub><mo>=</mo><mn>0</mn></math> and gets <math><msub><mi>&gamma;</mi><mi>j</mi></msub><mo>=</mo><mn>0</mn></math>.</p>
+
+<h3>Tail scores</h3>
+<p>Three sums over features: left tail, right tail, and the tail picked by skewness.</p>
+<div class="math"><math display="block">
+  <msub><mi>O</mi><mi>L</mi></msub><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mo>&minus;</mo>
+  <munderover><mo>&sum;</mo><mrow><mi>j</mi><mo>=</mo><mn>1</mn></mrow><mi>d</mi></munderover>
+  <mi>ln</mi><mspace width="0.17em"></mspace><msub><mi>L</mi><mi>j</mi></msub><mo stretchy="false">(</mo><msub><mi>x</mi><mi>j</mi></msub><mo stretchy="false">)</mo>
+  <mspace width="2em"></mspace>
+  <msub><mi>O</mi><mi>R</mi></msub><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mo>&minus;</mo>
+  <munderover><mo>&sum;</mo><mrow><mi>j</mi><mo>=</mo><mn>1</mn></mrow><mi>d</mi></munderover>
+  <mi>ln</mi><mspace width="0.17em"></mspace><msub><mi>R</mi><mi>j</mi></msub><mo stretchy="false">(</mo><msub><mi>x</mi><mi>j</mi></msub><mo stretchy="false">)</mo>
+</math></div>
+<div class="math"><math display="block">
+  <msub><mi>O</mi><mi>A</mi></msub><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mo>&minus;</mo>
+  <munderover><mo>&sum;</mo><mrow><mi>j</mi><mo>=</mo><mn>1</mn></mrow><mi>d</mi></munderover>
+  <mi>ln</mi><mspace width="0.17em"></mspace><msub><mi>T</mi><mi>j</mi></msub><mo stretchy="false">(</mo><msub><mi>x</mi><mi>j</mi></msub><mo stretchy="false">)</mo>
+  <mo>,</mo>
+  <mspace width="1em"></mspace>
+  <msub><mi>T</mi><mi>j</mi></msub><mo>=</mo>
+  <mrow><mo>{</mo>
+    <mtable>
+      <mtr><mtd><msub><mi>R</mi><mi>j</mi></msub></mtd><mtd><mtext>if&nbsp;</mtext><msub><mi>&gamma;</mi><mi>j</mi></msub><mo>&ge;</mo><mn>0</mn></mtd></mtr>
+      <mtr><mtd><msub><mi>L</mi><mi>j</mi></msub></mtd><mtd><mtext>otherwise</mtext></mtd></mtr>
+    </mtable>
+  </mrow>
+</math></div>
+<p>Tail probabilities are at most 1, so all scores are non-negative. With one tail, a normal sample scores about <math><mi>d</mi></math> on average, because <math><mo>&minus;</mo><mi>ln</mi><mspace width="0.17em"></mspace><mi>U</mi></math> of a uniform value averages 1. The <code>"max"</code> and <code>"pyod-max"</code> methods give higher numbers on the same data. A sample that sits in the tails of many features scores much higher than any of these.</p>
+
+<h3 id="score-methods">Score methods</h3>
+<p>The <code>method</code> parameter picks the final score <math><mi>O</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></math>:</p>
+<div class="table-wrap"><table>
+  <tr><th><code>method</code></th><th>Score</th><th>When to use</th></tr>
+  <tr>
+    <td><code>"max"</code></td>
+    <td><math><mo>max</mo><mo stretchy="false">(</mo><msub><mi>O</mi><mi>L</mi></msub><mo>,</mo><msub><mi>O</mi><mi>R</mi></msub><mo>,</mo><msub><mi>O</mi><mi>A</mi></msub><mo stretchy="false">)</mo></math></td>
+    <td>Default, as in the paper. The maximum is taken over the three whole sums.</td>
+  </tr>
+  <tr>
+    <td><code>"pyod-max"</code></td>
+    <td><math><mo>&minus;</mo><munderover><mo>&sum;</mo><mrow><mi>j</mi><mo>=</mo><mn>1</mn></mrow><mi>d</mi></munderover><mi>ln</mi><mspace width="0.17em"></mspace><mo>min</mo><mo stretchy="false">(</mo><msub><mi>L</mi><mi>j</mi></msub><mo>,</mo><msub><mi>R</mi><mi>j</mi></msub><mo stretchy="false">)</mo></math></td>
+    <td>Reproduces PyOD's numbers. PyOD takes the maximum per feature, before summing, which is always at least the paper's score.</td>
+  </tr>
+  <tr>
+    <td><code>"left"</code></td>
+    <td><math><msub><mi>O</mi><mi>L</mi></msub></math></td>
+    <td>Only unusually low values matter.</td>
+  </tr>
+  <tr>
+    <td><code>"right"</code></td>
+    <td><math><msub><mi>O</mi><mi>R</mi></msub></math></td>
+    <td>Only unusually high values matter, for example latencies or amounts.</td>
+  </tr>
+  <tr>
+    <td><code>"auto"</code></td>
+    <td><math><msub><mi>O</mi><mi>A</mi></msub></math></td>
+    <td>One tail per feature, the long one.</td>
+  </tr>
+</table></div>
+
+<h2 id="prediction">Scores, labels and probabilities</h2>
+<p>A fitted model gives three kinds of output for the same samples. All three come from the same score <math><mi>O</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></math>; they differ in what they add on top of it.</p>
+
+<div class="table-wrap"><table>
+  <tr><th></th><th><code>decision_function</code></th><th><code>predict</code></th><th><code>predict_proba(method="linear")</code></th><th><code>predict_proba(method="unify")</code></th></tr>
+  <tr><td>Returns</td><td>Score, a float &gt;= 0</td><td>Label, 0 or 1</td><td><code>[inlier, outlier]</code>, floats in [0, 1]</td><td><code>[inlier, outlier]</code>, floats in [0, 1]</td></tr>
+  <tr><td>Uses <code>contamination</code></td><td>No</td><td>Yes, sets the threshold</td><td>No</td><td>No</td></tr>
+  <tr><td>Uses training scores</td><td>No</td><td>Their percentile</td><td>Their min and max</td><td>Their mean and std</td></tr>
+  <tr><td>Keeps the order of scores</td><td>-</td><td>Only above or below the threshold</td><td>Yes, until clipped at 0 or 1</td><td>Yes, until clipped at 0 or 1</td></tr>
+  <tr><td>Good for</td><td>Ranking samples, ROC AUC, your own threshold</td><td>A yes/no decision at a known outlier rate</td><td>Comparing scores on a fixed scale</td><td>Calibrated-looking probabilities, as in PyOD</td></tr>
+</table></div>
+
+<p>At <code>fit</code>, the model scores its own training data once and stores four numbers from those training scores: the threshold, the minimum and maximum, and the mean and standard deviation. <code>predict</code> and <code>predict_proba</code> compare new scores with them.</p>
+
+<h3 id="decision-function">decision_function</h3>
+<p>Returns <math><mi>O</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></math> for every row, nothing else. Higher means more anomalous. This is the output to use for ranking and for metrics such as ROC AUC, since it loses no information.</p>
+
+<h3 id="predict">predict</h3>
+<p>The threshold <math><mi>t</mi></math> is the <math><mn>100</mn><mo stretchy="false">(</mo><mn>1</mn><mo>&minus;</mo><mi>c</mi><mo stretchy="false">)</mo></math>-th percentile of the training scores, where <math><mi>c</mi></math> is <code>contamination</code>. The percentile uses linear interpolation, like <code>numpy.percentile</code> by default. A row is an outlier when its score is above the threshold:</p>
+<div class="math"><math display="block">
+  <mover><mi>y</mi><mo>^</mo></mover><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo>
+  <mrow><mo>{</mo>
+    <mtable>
+      <mtr><mtd><mn>1</mn></mtd><mtd><mtext>if&nbsp;</mtext><mi>O</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>&gt;</mo><mi>t</mi></mtd></mtr>
+      <mtr><mtd><mn>0</mn></mtd><mtd><mtext>otherwise</mtext></mtd></mtr>
+    </mtable>
+  </mrow>
+</math></div>
+<p>So on the training data about a share <math><mi>c</mi></math> of rows is labelled 1. On new data the share can be anything: it is the share of rows that score above the training percentile. <code>contamination</code> does not change scores or probabilities, only this threshold.</p>
+
+<h3 id="predict-proba">predict_proba</h3>
+<p>Turns the score into an outlier probability <math><mi>p</mi></math> and returns <math><mo>[</mo><mn>1</mn><mo>&minus;</mo><mi>p</mi><mo>,</mo><mi>p</mi><mo>]</mo></math> per row, an array of shape <code>(n_samples, 2)</code> like in PyOD and scikit-learn. Both methods clip <math><mi>p</mi></math> to <math><mo>[</mo><mn>0</mn><mo>,</mo><mn>1</mn><mo>]</mo></math>. With <math><msub><mi>O</mi><mi>min</mi></msub></math>, <math><msub><mi>O</mi><mi>max</mi></msub></math>, <math><mi>&mu;</mi></math> and <math><mi>&sigma;</mi></math> the minimum, maximum, mean and standard deviation of the training scores:</p>
+<div class="math"><math display="block">
+  <msub><mi>p</mi><mtext>linear</mtext></msub><mo>=</mo>
+  <mfrac>
+    <mrow><mi>O</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>&minus;</mo><msub><mi>O</mi><mi>min</mi></msub></mrow>
+    <mrow><msub><mi>O</mi><mi>max</mi></msub><mo>&minus;</mo><msub><mi>O</mi><mi>min</mi></msub></mrow>
+  </mfrac>
+  <mspace width="3em"></mspace>
+  <msub><mi>p</mi><mtext>unify</mtext></msub><mo>=</mo>
+  <mi>erf</mi><mrow><mo>(</mo>
+    <mfrac>
+      <mrow><mi>O</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>&minus;</mo><mi>&mu;</mi></mrow>
+      <mrow><mi>&sigma;</mi><msqrt><mn>2</mn></msqrt></mrow>
+    </mfrac>
+  <mo>)</mo></mrow>
+</math></div>
+<ul>
+  <li><code>"linear"</code> maps the training score range onto [0, 1]. Every score above the largest training score gets 1, so it cannot tell a slightly unusual new sample from an extreme one. If all training scores are equal, the range is taken as 1.</li>
+  <li><code>"unify"</code> gives exactly 0 to every score below the training mean, since <math><mi>erf</mi></math> is negative there. Scores are skewed to the right, so usually more than half of normal samples get 0: 58% in a test on normal noise. Above the mean it rises quickly: two standard deviations above the mean gives about 0.95.</li>
+  <li><math><mi>&sigma;</mi></math> is the population standard deviation, like <code>numpy.std</code> with the default <code>ddof=0</code>.</li>
+</ul>
+
+<h3>predict and predict_proba can disagree</h3>
+<p><code>predict</code> uses the contamination threshold, <code>predict_proba</code> does not. A row labelled 1 can have an outlier probability below 0.5, and the other way round. In a quick check with 500 training and 50 test rows of normal noise, <code>predict_proba(x)[:, 1] &gt; 0.5</code> differed from <code>predict(x)</code> on 4 rows. If you need labels, use <code>predict</code>; if you need your own cut-off, threshold <code>decision_function</code>.</p>
+
+<h3>ECOD and the batch</h3>
+<p>For <code>ECOD</code> all three outputs depend on the batch, because the score does. The same row gets a different score, label and probability when scored alone and when scored together with other rows. The stored training statistics stay fixed, so only the score side moves.</p>
+<p>Scoring the training data again with <code>ECOD.decision_function(X_train)</code> gives the same scores as <code>fit</code>: merging the data with a copy of itself doubles every count and the total, so the ratios do not change. These are also the numbers PyOD stores in <code>decision_scores_</code> with <code>method="pyod-max"</code>.</p>
+<p><code>InductiveECOD</code> has none of this: a row gets the same output alone or in any batch.</p>
+
+<h2 id="methods">Methods</h2>
+
+<h3><code>fit(x) -&gt; self</code></h3>
+<p>Fits the model on <code>x</code> of shape <code>(n_samples, n_features)</code> and returns the model itself, so calls can be chained.</p>
+
+<h3><code>decision_function(x) -&gt; list[float]</code></h3>
+<p>Score of each row. See <a href="#decision-function">decision_function</a>.</p>
+
+<h3><code>predict(x) -&gt; list[int]</code></h3>
+<p>Label of each row, 1 for outliers. See <a href="#predict">predict</a>.</p>
+
+<h3><code>predict_proba(x, method="linear") -&gt; list[[float, float]]</code></h3>
+<p><code>[inlier, outlier]</code> probabilities of each row, <code>method</code> is <code>"linear"</code> or <code>"unify"</code>. See <a href="#predict-proba">predict_proba</a>.</p>
+
+<h3><code>save(path, *, compression_level=None)</code></h3>
+<p>Writes the fitted model to a file. See <a href="#persistence">Saving and loading</a>.</p>
+
+<h3><code>load(path, *, n_jobs=1) -&gt; model</code></h3>
+<p>Static method. Reads a model saved by the same class.</p>
+
+<p>For every method that takes <code>x</code>, it must have the same number of features as the training data.</p>
+
+<h2 id="input">Input data</h2>
+<ul>
+  <li>A 2-D numpy <code>float64</code> array is read in place, without a copy. Non-contiguous views such as slices and transposes work too.</li>
+  <li>Other dtypes and lists of lists are converted to <code>float64</code> first, which costs a copy.</li>
+  <li>Values must be finite: <code>NaN</code> and <code>inf</code> raise <code>ValueError</code>.</li>
+  <li>Results are returned as Python lists; wrap them in <code>np.asarray</code> if you need an array.</li>
+</ul>
+
+<h2 id="parallelism">Parallelism</h2>
+<p><code>n_jobs</code> sets the number of threads for <code>fit</code>, <code>decision_function</code>, <code>predict</code> and <code>predict_proba</code>.</p>
+<ul>
+  <li><code>1</code> (default): one thread. Good for small data, and when the model already runs inside parallel code such as <code>GridSearchCV(n_jobs=-1)</code> or joblib.</li>
+  <li><code>0</code>: all cores.</li>
+  <li><code>n &gt; 0</code>: <code>n</code> threads.</li>
+  <li>Negative values raise <code>ValueError</code>. <code>-1</code> does not mean all cores here, unlike in scikit-learn.</li>
+</ul>
+<p>Scores are bit-identical for any <code>n_jobs</code>. Each model keeps its own thread pool for its lifetime. The GIL is released during computation, so Python threads can run other work in parallel.</p>
+<p>On 100,000 rows and more, all cores are 4 to 7 times faster than one thread. Around 10,000 rows it is about 2 times faster, and for tiny inputs starting the pool in the constructor costs more than it saves. See <a href="#bench-parallelism">the benchmark</a>.</p>
+
+<h2 id="persistence">Saving and loading</h2>
+<pre><code>model.save("model.bin")                         # zstd level 3
+model.save("model.bin", compression_level=19)   # smaller file, slower save
+model = InductiveECOD.load("model.bin", n_jobs=0)</code></pre>
+<ul>
+  <li>The file is the model compressed with zstd. <code>compression_level</code> is a zstd level: higher means a smaller file and a slower save, negative values are faster than the default.</li>
+  <li><code>n_jobs</code> is not stored in the file: a model saved on one machine can be loaded on another with its own thread count.</li>
+  <li>The model is checked on load. A damaged file raises <code>ValueError</code> or <code>RuntimeError</code> (see <a href="#errors">Errors</a>) instead of producing wrong scores.</li>
+</ul>
+
+<h2 id="errors">Errors</h2>
+<div class="table-wrap"><table>
+  <tr><th>Exception</th><th>When</th></tr>
+  <tr><td><code>ValueError</code></td><td>Invalid <code>contamination</code>, <code>method</code> or <code>n_jobs</code>; empty input; rows of different lengths; <code>NaN</code> or <code>inf</code> in the input; wrong number of features passed to a fitted model; a model file that cannot be decoded or fails the checks.</td></tr>
+  <tr><td><code>RuntimeError</code></td><td>Calling <code>decision_function</code>, <code>predict</code>, <code>predict_proba</code> or <code>save</code> before <code>fit</code>; zstd failing to compress or decompress.</td></tr>
+  <tr><td><code>OSError</code></td><td>File errors in <code>save</code> and <code>load</code>, such as <code>FileNotFoundError</code> or <code>PermissionError</code>.</td></tr>
+</table></div>
+
+<!-- benchmark:start -->
+<h2 id="benchmark">Benchmark</h2>
+<p>ecod-rs compared with ECOD from <a href="https://github.com/yzhao062/pyod">PyOD</a>.</p>
 <p>Data is random normal noise of several sizes (rows x features) and the classical datasets from
 <a href="https://github.com/Minqi824/ADBench">ADBench</a>. Each dataset is split 60/40 into train and test.
-Every measurement runs in a fresh single-threaded process, times are taken over 5 runs.</p>
+Every measurement runs in a fresh process, times are taken over 5 runs.
+All tables except Parallelism use one thread: <code>n_jobs=1</code> for both libraries.</p>
 <p>What is measured:</p>
 <ul>
 <li>fit: training, including conversion from numpy;</li>
@@ -19,171 +393,183 @@ Every measurement runs in a fresh single-threaded process, times are taken over 
 zstd levels 3 and 19 for ecod-rs, joblib levels 0 and 3 for PyOD.</li>
 </ul>
 
-<h2>Summary</h2>
+<h3 id="bench-summary">Summary</h3>
 <p>How many times ecod-rs is faster than pyod-ECOD: median over all 53 datasets, the range in brackets. Below 1 means slower.</p>
-<table>
+<div class="table-wrap"><table class="nums">
 <tr><th rowspan="2">phase</th><th rowspan="2">variant</th><th colspan="2">times faster than pyod-ECOD</th></tr>
 <tr><th>ECOD</th><th>InductiveECOD</th></tr>
-<tr><td>fit</td><td></td><td>×6.4 (2.7 to 20.5)</td><td>×6.2 (2.7 to 19.9)</td></tr>
-<tr><td>score</td><td></td><td>×12.0 (5.4 to 23.6)</td><td>×17.7 (9.7 to 42.3)</td></tr>
-<tr><td>pipeline</td><td></td><td>×9.4 (4.1 to 20.6)</td><td>×10.6 (5.2 to 23.5)</td></tr>
-<tr><td>save</td><td>default</td><td>×2.2 (0.4 to 6.2)</td><td>×2.2 (0.4 to 5.8)</td></tr>
-<tr><td>save</td><td>compressed</td><td>×1.4 (0.3 to 19.3)</td><td>×1.5 (0.3 to 19.5)</td></tr>
-<tr><td>load</td><td>default</td><td>×3.8 (0.5 to 9.9)</td><td>×3.7 (0.5 to 9.6)</td></tr>
-<tr><td>load</td><td>compressed</td><td>×29.9 (11.1 to 118.6)</td><td>×30.1 (11.1 to 116.5)</td></tr>
-</table>
-<h2>Speed</h2>
+<tr><td>fit</td><td></td><td>4.3x (2.3x to 11.3x)</td><td>4.3x (2.2x to 10.7x)</td></tr>
+<tr><td>score</td><td></td><td>7.7x (3.9x to 26.7x)</td><td>10.7x (5.8x to 39.7x)</td></tr>
+<tr><td>pipeline</td><td></td><td>5.7x (2.7x to 18.1x)</td><td>6.6x (3.2x to 19.8x)</td></tr>
+<tr><td>save</td><td>default</td><td>2.4x (0.4x to 5.3x)</td><td>2.3x (0.4x to 5.3x)</td></tr>
+<tr><td>save</td><td>compressed</td><td>1.7x (0.3x to 19.3x)</td><td>1.7x (0.3x to 18.1x)</td></tr>
+<tr><td>load</td><td>default</td><td>2.7x (0.5x to 4.0x)</td><td>2.7x (0.5x to 4.2x)</td></tr>
+<tr><td>load</td><td>compressed</td><td>24.6x (4.7x to 105.5x)</td><td>24.9x (4.3x to 108.9x)</td></tr>
+</table></div>
+<h3 id="bench-speed">Speed</h3>
 <p>Median time in seconds. In brackets, how many times faster than pyod-ECOD. PyOD has no separate convert step.</p>
-<table>
+<div class="table-wrap"><table class="nums">
 <tr><th rowspan="2">dataset</th><th colspan="3">fit, s</th><th colspan="3">score, s</th><th colspan="3">pipeline, s</th><th colspan="2">convert, s</th></tr>
 <tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th></tr>
-<tr><td>1000x10</td><td>0.0003146 (×5.6)</td><td>0.0003185 (×5.6)</td><td>0.001773</td><td>0.0002783 (×7.5)</td><td>0.0001734 (×12.0)</td><td>0.002088</td><td>0.0005905 (×5.9)</td><td>0.0004792 (×7.3)</td><td>0.003512</td><td>0.00001576</td><td>0.00002044</td></tr>
-<tr><td>10000x10</td><td>0.003258 (×3.1)</td><td>0.00331 (×3.0)</td><td>0.01001</td><td>0.002771 (×6.0)</td><td>0.001646 (×10.1)</td><td>0.0167</td><td>0.005986 (×4.7)</td><td>0.004946 (×5.7)</td><td>0.02797</td><td>0.00002088</td><td>0.00001961</td></tr>
-<tr><td>100000x10</td><td>0.0391 (×3.6)</td><td>0.04024 (×3.5)</td><td>0.1403</td><td>0.0338 (×6.9)</td><td>0.01898 (×12.2)</td><td>0.2322</td><td>0.07202 (×5.2)</td><td>0.05737 (×6.6)</td><td>0.3758</td><td>0.00001584</td><td>0.00001632</td></tr>
-<tr><td>1000000x10</td><td>0.4811 (×3.7)</td><td>0.4644 (×3.8)</td><td>1.76</td><td>0.3888 (×7.9)</td><td>0.2056 (×14.9)</td><td>3.054</td><td>0.8921 (×5.3)</td><td>0.6746 (×7.0)</td><td>4.723</td><td>0.00001829</td><td>0.00001699</td></tr>
-<tr><td>10000x100</td><td>0.03524 (×3.0)</td><td>0.03489 (×3.0)</td><td>0.1056</td><td>0.03265 (×5.4)</td><td>0.01684 (×10.4)</td><td>0.1751</td><td>0.06844 (×4.1)</td><td>0.05331 (×5.3)</td><td>0.284</td><td>0.00001736</td><td>0.0000185</td></tr>
-<tr><td>100000x100</td><td>0.3991 (×3.6)</td><td>0.3987 (×3.6)</td><td>1.437</td><td>0.3558 (×7.3)</td><td>0.1835 (×14.1)</td><td>2.594</td><td>0.7502 (×5.4)</td><td>0.5838 (×6.9)</td><td>4.05</td><td>0.00001586</td><td>0.00001603</td></tr>
-</table>
+<tr><td>1000x10</td><td>0.0005315 (3.1x)</td><td>0.0005719 (2.9x)</td><td>0.00167</td><td>0.0004201 (4.3x)</td><td>0.0002783 (6.4x)</td><td>0.001795</td><td>0.0009592 (3.0x)</td><td>0.0007912 (3.7x)</td><td>0.00292</td><td>0.0001278</td><td>0.0001273</td></tr>
+<tr><td>10000x10</td><td>0.003823 (2.3x)</td><td>0.003394 (2.5x)</td><td>0.008634</td><td>0.002972 (4.8x)</td><td>0.002029 (7.0x)</td><td>0.01416</td><td>0.006267 (3.7x)</td><td>0.004784 (4.9x)</td><td>0.02329</td><td>0.0001288</td><td>0.0001476</td></tr>
+<tr><td>100000x10</td><td>0.03551 (2.9x)</td><td>0.03621 (2.9x)</td><td>0.1044</td><td>0.03009 (6.1x)</td><td>0.0157 (11.7x)</td><td>0.1833</td><td>0.06694 (4.3x)</td><td>0.05167 (5.5x)</td><td>0.2864</td><td>0.0001298</td><td>0.0001327</td></tr>
+<tr><td>1000000x10</td><td>0.4118 (3.6x)</td><td>0.4117 (3.6x)</td><td>1.5</td><td>0.3141 (8.1x)</td><td>0.177 (14.4x)</td><td>2.546</td><td>0.7523 (5.4x)</td><td>0.5904 (6.8x)</td><td>4.036</td><td>0.000141</td><td>0.0001601</td></tr>
+<tr><td>10000x100</td><td>0.03111 (2.8x)</td><td>0.03004 (2.8x)</td><td>0.08557</td><td>0.02799 (5.1x)</td><td>0.01417 (10.0x)</td><td>0.1414</td><td>0.059 (3.9x)</td><td>0.04392 (5.2x)</td><td>0.2304</td><td>0.0001576</td><td>0.0001554</td></tr>
+<tr><td>100000x100</td><td>0.3506 (3.5x)</td><td>0.3378 (3.6x)</td><td>1.228</td><td>0.3004 (7.2x)</td><td>0.1561 (13.8x)</td><td>2.159</td><td>0.6526 (5.2x)</td><td>0.4928 (6.9x)</td><td>3.384</td><td>0.0001386</td><td>0.0001484</td></tr>
+</table></div>
 <details>
 <summary>ADBench datasets</summary>
-<table>
+<div class="table-wrap"><table class="nums">
 <tr><th rowspan="2">dataset</th><th colspan="3">fit, s</th><th colspan="3">score, s</th><th colspan="3">pipeline, s</th><th colspan="2">convert, s</th></tr>
 <tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th></tr>
-<tr><td>1_ALOI</td><td>0.03444 (×5.7)</td><td>0.03395 (×5.8)</td><td>0.1965</td><td>0.02367 (×14.8)</td><td>0.01646 (×21.3)</td><td>0.3512</td><td>0.05822 (×9.4)</td><td>0.05191 (×10.6)</td><td>0.548</td><td>0.00001898</td><td>0.0000175</td></tr>
-<tr><td>2_annthyroid</td><td>0.0008743 (×5.9)</td><td>0.0008899 (×5.8)</td><td>0.005201</td><td>0.0006777 (×11.9)</td><td>0.0004644 (×17.3)</td><td>0.008048</td><td>0.001547 (×8.3)</td><td>0.001325 (×9.7)</td><td>0.01289</td><td>0.00001492</td><td>0.00001687</td></tr>
-<tr><td>3_backdoor</td><td>0.3141 (×9.7)</td><td>0.3151 (×9.7)</td><td>3.059</td><td>0.2757 (×19.5)</td><td>0.1367 (×39.2)</td><td>5.364</td><td>0.592 (×14.3)</td><td>0.4528 (×18.6)</td><td>8.444</td><td>0.00001648</td><td>0.00001515</td></tr>
-<tr><td>4_breastw</td><td>0.000119 (×13.5)</td><td>0.0001213 (×13.3)</td><td>0.001609</td><td>0.00009787 (×18.3)</td><td>0.00007337 (×24.4)</td><td>0.00179</td><td>0.0002008 (×15.5)</td><td>0.0001754 (×17.7)</td><td>0.00311</td><td>0.00001528</td><td>0.0000156</td></tr>
-<tr><td>5_campaign</td><td>0.03771 (×9.6)</td><td>0.04064 (×8.9)</td><td>0.3611</td><td>0.02773 (×23.6)</td><td>0.01915 (×34.1)</td><td>0.6536</td><td>0.06571 (×15.6)</td><td>0.05948 (×17.3)</td><td>1.027</td><td>0.00001624</td><td>0.00001649</td></tr>
-<tr><td>6_cardio</td><td>0.000812 (×5.7)</td><td>0.0008217 (×5.6)</td><td>0.004595</td><td>0.0006845 (×10.1)</td><td>0.0004569 (×15.2)</td><td>0.006943</td><td>0.001467 (×7.6)</td><td>0.00125 (×9.0)</td><td>0.0112</td><td>0.00001492</td><td>0.0000149</td></tr>
-<tr><td>7_Cardiotocography</td><td>0.0008516 (×5.9)</td><td>0.0008667 (×5.8)</td><td>0.005046</td><td>0.0006999 (×11.2)</td><td>0.0004848 (×16.2)</td><td>0.007859</td><td>0.001538 (×8.1)</td><td>0.001309 (×9.5)</td><td>0.01248</td><td>0.0000147</td><td>0.00001526</td></tr>
-<tr><td>8_celeba</td><td>0.1402 (×7.3)</td><td>0.1431 (×7.1)</td><td>1.019</td><td>0.1189 (×15.3)</td><td>0.06594 (×27.5)</td><td>1.816</td><td>0.2576 (×11.0)</td><td>0.2076 (×13.6)</td><td>2.829</td><td>0.00001517</td><td>0.00001566</td></tr>
-<tr><td>9_census</td><td>3.417 (×8.2)</td><td>3.447 (×8.1)</td><td>27.92</td><td>2.642 (×18.3)</td><td>1.144 (×42.3)</td><td>48.39</td><td>5.753 (×13.2)</td><td>4.29 (×17.8)</td><td>76.18</td><td>0.00001628</td><td>0.00001541</td></tr>
-<tr><td>10_cover</td><td>0.06237 (×7.1)</td><td>0.06583 (×6.7)</td><td>0.4411</td><td>0.04394 (×17.2)</td><td>0.03212 (×23.6)</td><td>0.7569</td><td>0.1068 (×11.1)</td><td>0.1006 (×11.8)</td><td>1.191</td><td>0.00001855</td><td>0.00001664</td></tr>
-<tr><td>11_donors</td><td>0.113 (×8.0)</td><td>0.1115 (×8.1)</td><td>0.8986</td><td>0.09629 (×20.2)</td><td>0.05081 (×38.3)</td><td>1.947</td><td>0.2075 (×13.6)</td><td>0.1671 (×16.9)</td><td>2.831</td><td>0.000016</td><td>0.00001875</td></tr>
-<tr><td>12_fault</td><td>0.001358 (×3.9)</td><td>0.001371 (×3.8)</td><td>0.005261</td><td>0.001166 (×7.4)</td><td>0.0007633 (×11.2)</td><td>0.008578</td><td>0.002477 (×5.5)</td><td>0.002098 (×6.4)</td><td>0.01353</td><td>0.00001926</td><td>0.00001738</td></tr>
-<tr><td>13_fraud</td><td>0.3704 (×3.9)</td><td>0.3732 (×3.9)</td><td>1.44</td><td>0.3085 (×8.0)</td><td>0.1674 (×14.8)</td><td>2.478</td><td>0.6766 (×5.8)</td><td>0.546 (×7.1)</td><td>3.904</td><td>0.00001677</td><td>0.00001739</td></tr>
-<tr><td>14_glass</td><td>0.00006568 (×16.8)</td><td>0.00006481 (×17.0)</td><td>0.001104</td><td>0.00005911 (×16.3)</td><td>0.00004068 (×23.7)</td><td>0.000966</td><td>0.0001123 (×15.3)</td><td>0.00009516 (×18.1)</td><td>0.001719</td><td>0.00001618</td><td>0.00001671</td></tr>
-<tr><td>15_Hepatitis</td><td>0.00006171 (×17.4)</td><td>0.000059 (×18.2)</td><td>0.001076</td><td>0.00005122 (×18.0)</td><td>0.00003865 (×23.9)</td><td>0.0009236</td><td>0.0000985 (×17.2)</td><td>0.00008304 (×20.4)</td><td>0.001692</td><td>0.00001635</td><td>0.00001816</td></tr>
-<tr><td>16_http</td><td>0.04223 (×7.5)</td><td>0.04245 (×7.4)</td><td>0.3153</td><td>0.03111 (×17.8)</td><td>0.01958 (×28.3)</td><td>0.5537</td><td>0.07468 (×11.8)</td><td>0.06295 (×14.0)</td><td>0.8797</td><td>0.00001731</td><td>0.00001818</td></tr>
-<tr><td>17_InternetAds</td><td>0.0562 (×7.5)</td><td>0.05586 (×7.6)</td><td>0.4229</td><td>0.03364 (×21.9)</td><td>0.02375 (×31.0)</td><td>0.7373</td><td>0.09682 (×12.1)</td><td>0.07627 (×15.4)</td><td>1.175</td><td>0.00001557</td><td>0.00001704</td></tr>
-<tr><td>18_Ionosphere</td><td>0.0003089 (×5.6)</td><td>0.0003141 (×5.5)</td><td>0.001716</td><td>0.0002777 (×7.2)</td><td>0.0001739 (×11.5)</td><td>0.001997</td><td>0.000571 (×5.8)</td><td>0.0004783 (×6.9)</td><td>0.003284</td><td>0.00001787</td><td>0.00001887</td></tr>
-<tr><td>19_landsat</td><td>0.003861 (×5.4)</td><td>0.004241 (×4.9)</td><td>0.02093</td><td>0.003537 (×12.0)</td><td>0.002216 (×19.1)</td><td>0.04235</td><td>0.007087 (×9.8)</td><td>0.006443 (×10.8)</td><td>0.06966</td><td>0.00001622</td><td>0.00001704</td></tr>
-<tr><td>20_letter</td><td>0.0007171 (×7.7)</td><td>0.000736 (×7.5)</td><td>0.005508</td><td>0.0005887 (×13.3)</td><td>0.000443 (×17.7)</td><td>0.007836</td><td>0.00129 (×10.0)</td><td>0.001113 (×11.6)</td><td>0.01289</td><td>0.00001588</td><td>0.00001587</td></tr>
-<tr><td>21_Lymphography</td><td>0.000066 (×18.0)</td><td>0.00006727 (×17.6)</td><td>0.001186</td><td>0.00006432 (×18.3)</td><td>0.00004162 (×28.3)</td><td>0.001177</td><td>0.0001135 (×17.4)</td><td>0.00009758 (×20.2)</td><td>0.00197</td><td>0.00001932</td><td>0.00001737</td></tr>
-<tr><td>22_magic.gamma</td><td>0.006371 (×3.2)</td><td>0.006515 (×3.1)</td><td>0.02025</td><td>0.005375 (×6.6)</td><td>0.003252 (×10.8)</td><td>0.03525</td><td>0.01179 (×5.2)</td><td>0.009671 (×6.3)</td><td>0.06083</td><td>0.00001723</td><td>0.000018</td></tr>
-<tr><td>23_mammography</td><td>0.001409 (×6.4)</td><td>0.001431 (×6.3)</td><td>0.009078</td><td>0.001157 (×12.4)</td><td>0.0007776 (×18.5)</td><td>0.01439</td><td>0.002551 (×9.7)</td><td>0.002185 (×11.3)</td><td>0.02479</td><td>0.0000169</td><td>0.00001568</td></tr>
-<tr><td>24_mnist</td><td>0.01096 (×7.2)</td><td>0.01187 (×6.6)</td><td>0.07844</td><td>0.008951 (×16.1)</td><td>0.005628 (×25.6)</td><td>0.1443</td><td>0.01984 (×11.7)</td><td>0.0168 (×13.8)</td><td>0.2324</td><td>0.00001682</td><td>0.00002205</td></tr>
-<tr><td>25_musk</td><td>0.01268 (×3.4)</td><td>0.01285 (×3.3)</td><td>0.04252</td><td>0.0105 (×8.1)</td><td>0.006463 (×13.1)</td><td>0.08459</td><td>0.0232 (×6.1)</td><td>0.01902 (×7.4)</td><td>0.1416</td><td>0.00001733</td><td>0.00001556</td></tr>
-<tr><td>26_optdigits</td><td>0.005102 (×6.7)</td><td>0.005073 (×6.7)</td><td>0.03418</td><td>0.003592 (×17.0)</td><td>0.002533 (×24.1)</td><td>0.06111</td><td>0.008243 (×13.8)</td><td>0.007449 (×15.3)</td><td>0.1138</td><td>0.00001803</td><td>0.00001492</td></tr>
-<tr><td>27_PageBlocks</td><td>0.001446 (×4.5)</td><td>0.001485 (×4.3)</td><td>0.006448</td><td>0.001196 (×8.5)</td><td>0.0007582 (×13.4)</td><td>0.01019</td><td>0.002631 (×6.1)</td><td>0.002209 (×7.3)</td><td>0.01615</td><td>0.00001599</td><td>0.00001585</td></tr>
-<tr><td>28_pendigits</td><td>0.002974 (×3.9)</td><td>0.003021 (×3.8)</td><td>0.01148</td><td>0.00255 (×7.3)</td><td>0.00156 (×11.9)</td><td>0.01859</td><td>0.005532 (×5.8)</td><td>0.004546 (×7.1)</td><td>0.03209</td><td>0.00001566</td><td>0.00001617</td></tr>
-<tr><td>29_Pima</td><td>0.0001735 (×8.4)</td><td>0.0001769 (×8.2)</td><td>0.001456</td><td>0.0001504 (×10.9)</td><td>0.0001006 (×16.4)</td><td>0.001647</td><td>0.0003102 (×9.0)</td><td>0.0002645 (×10.6)</td><td>0.002804</td><td>0.00001602</td><td>0.0000157</td></tr>
-<tr><td>30_satellite</td><td>0.00392 (×5.4)</td><td>0.004187 (×5.0)</td><td>0.02109</td><td>0.003474 (×11.0)</td><td>0.002259 (×16.9)</td><td>0.03812</td><td>0.006975 (×9.4)</td><td>0.006311 (×10.4)</td><td>0.06563</td><td>0.00001595</td><td>0.00001627</td></tr>
-<tr><td>31_satimage-2</td><td>0.003643 (×5.3)</td><td>0.003708 (×5.2)</td><td>0.01916</td><td>0.003088 (×10.9)</td><td>0.002001 (×16.8)</td><td>0.03361</td><td>0.00674 (×8.7)</td><td>0.005621 (×10.4)</td><td>0.05834</td><td>0.00001529</td><td>0.0000161</td></tr>
-<tr><td>32_shuttle</td><td>0.006336 (×8.5)</td><td>0.00656 (×8.2)</td><td>0.05377</td><td>0.004984 (×20.6)</td><td>0.003515 (×29.2)</td><td>0.1026</td><td>0.01135 (×14.8)</td><td>0.00998 (×16.9)</td><td>0.1686</td><td>0.00001539</td><td>0.0000146</td></tr>
-<tr><td>33_skin</td><td>0.01439 (×6.7)</td><td>0.01457 (×6.6)</td><td>0.09592</td><td>0.01021 (×16.5)</td><td>0.007724 (×21.9)</td><td>0.1688</td><td>0.02447 (×11.4)</td><td>0.02158 (×13.0)</td><td>0.2798</td><td>0.00001583</td><td>0.00001522</td></tr>
-<tr><td>34_smtp</td><td>0.00603 (×6.1)</td><td>0.006032 (×6.1)</td><td>0.03654</td><td>0.004356 (×15.2)</td><td>0.00295 (×22.5)</td><td>0.06625</td><td>0.01025 (×10.7)</td><td>0.009003 (×12.2)</td><td>0.1096</td><td>0.00001419</td><td>0.0000158</td></tr>
-<tr><td>35_SpamBase</td><td>0.004433 (×6.7)</td><td>0.004539 (×6.5)</td><td>0.02963</td><td>0.003559 (×15.4)</td><td>0.00229 (×24.0)</td><td>0.05493</td><td>0.007909 (×11.8)</td><td>0.006798 (×13.7)</td><td>0.0931</td><td>0.00001704</td><td>0.00001634</td></tr>
-<tr><td>36_speech</td><td>0.04522 (×2.7)</td><td>0.04549 (×2.7)</td><td>0.1227</td><td>0.03928 (×6.1)</td><td>0.02322 (×10.3)</td><td>0.2381</td><td>0.08405 (×4.5)</td><td>0.06871 (×5.5)</td><td>0.3784</td><td>0.00001496</td><td>0.00001542</td></tr>
-<tr><td>37_Stamps</td><td>0.0001064 (×11.1)</td><td>0.0001087 (×10.9)</td><td>0.001182</td><td>0.00009418 (×12.2)</td><td>0.00006132 (×18.7)</td><td>0.001149</td><td>0.0001871 (×10.9)</td><td>0.0001557 (×13.1)</td><td>0.002036</td><td>0.00001548</td><td>0.00001521</td></tr>
-<tr><td>38_thyroid</td><td>0.0005032 (×6.4)</td><td>0.0005135 (×6.2)</td><td>0.003204</td><td>0.0004116 (×11.4)</td><td>0.000276 (×17.0)</td><td>0.004701</td><td>0.0008994 (×8.4)</td><td>0.0007643 (×9.9)</td><td>0.00755</td><td>0.00001656</td><td>0.00001643</td></tr>
-<tr><td>39_vertebral</td><td>0.00006213 (×17.4)</td><td>0.00006428 (×16.8)</td><td>0.001081</td><td>0.00005554 (×16.8)</td><td>0.00003741 (×24.9)</td><td>0.0009324</td><td>0.0001051 (×16.1)</td><td>0.00008861 (×19.1)</td><td>0.001689</td><td>0.00001494</td><td>0.00001538</td></tr>
-<tr><td>40_vowels</td><td>0.0005325 (×4.2)</td><td>0.0005477 (×4.1)</td><td>0.002245</td><td>0.0004747 (×6.4)</td><td>0.000286 (×10.6)</td><td>0.003029</td><td>0.0009977 (×5.0)</td><td>0.0008122 (×6.1)</td><td>0.004984</td><td>0.00001583</td><td>0.00001525</td></tr>
-<tr><td>41_Waveform</td><td>0.00223 (×3.2)</td><td>0.002264 (×3.1)</td><td>0.007083</td><td>0.001863 (×6.1)</td><td>0.001168 (×9.7)</td><td>0.01136</td><td>0.004083 (×4.3)</td><td>0.003398 (×5.2)</td><td>0.01762</td><td>0.0000154</td><td>0.00001549</td></tr>
-<tr><td>42_WBC</td><td>0.0000551 (×20.5)</td><td>0.00005659 (×19.9)</td><td>0.001129</td><td>0.00004742 (×21.6)</td><td>0.00003672 (×27.9)</td><td>0.001024</td><td>0.00008944 (×20.6)</td><td>0.00007818 (×23.5)</td><td>0.001841</td><td>0.00001543</td><td>0.00001631</td></tr>
-<tr><td>43_WDBC</td><td>0.0003259 (×5.1)</td><td>0.0003332 (×4.9)</td><td>0.001649</td><td>0.0002985 (×6.9)</td><td>0.0001881 (×11.0)</td><td>0.002071</td><td>0.0006168 (×5.6)</td><td>0.0005153 (×6.6)</td><td>0.003425</td><td>0.00001515</td><td>0.0000161</td></tr>
-<tr><td>44_Wilt</td><td>0.0008005 (×4.2)</td><td>0.0008062 (×4.2)</td><td>0.003386</td><td>0.0006907 (×7.1)</td><td>0.000421 (×11.6)</td><td>0.004904</td><td>0.001478 (×5.4)</td><td>0.001221 (×6.5)</td><td>0.007971</td><td>0.00001621</td><td>0.00001654</td></tr>
-<tr><td>45_wine</td><td>0.00006933 (×15.5)</td><td>0.00006972 (×15.4)</td><td>0.001077</td><td>0.00006283 (×15.5)</td><td>0.00004305 (×22.6)</td><td>0.0009733</td><td>0.0001226 (×14.5)</td><td>0.0001002 (×17.8)</td><td>0.001779</td><td>0.00001491</td><td>0.0000176</td></tr>
-<tr><td>46_WPBC</td><td>0.0002048 (×6.7)</td><td>0.000209 (×6.6)</td><td>0.00137</td><td>0.0001904 (×7.7)</td><td>0.0001184 (×12.4)</td><td>0.001472</td><td>0.0003702 (×6.8)</td><td>0.0003164 (×8.0)</td><td>0.002527</td><td>0.00001521</td><td>0.00001562</td></tr>
-<tr><td>47_yeast</td><td>0.0002472 (×8.7)</td><td>0.000251 (×8.6)</td><td>0.002162</td><td>0.0002031 (×13.9)</td><td>0.0001368 (×20.6)</td><td>0.002824</td><td>0.0004328 (×10.7)</td><td>0.0003748 (×12.4)</td><td>0.004645</td><td>0.00001503</td><td>0.00001652</td></tr>
-</table>
+<tr><td>1_ALOI</td><td>0.02566 (6.3x)</td><td>0.02615 (6.2x)</td><td>0.1629</td><td>0.02053 (14.7x)</td><td>0.01349 (22.4x)</td><td>0.3016</td><td>0.04615 (10.3x)</td><td>0.03959 (12.0x)</td><td>0.4732</td><td>0.0001259</td><td>0.0001496</td></tr>
+<tr><td>2_annthyroid</td><td>0.001216 (3.7x)</td><td>0.0009853 (4.5x)</td><td>0.004473</td><td>0.0008928 (7.6x)</td><td>0.0006369 (10.7x)</td><td>0.006815</td><td>0.001903 (5.8x)</td><td>0.001485 (7.4x)</td><td>0.01098</td><td>0.0001349</td><td>0.0001438</td></tr>
+<tr><td>3_backdoor</td><td>0.2502 (10.8x)</td><td>0.2516 (10.7x)</td><td>2.694</td><td>0.2203 (21.5x)</td><td>0.1223 (38.8x)</td><td>4.745</td><td>0.4755 (15.6x)</td><td>0.3852 (19.3x)</td><td>7.422</td><td>0.0001601</td><td>0.0001629</td></tr>
+<tr><td>4_breastw</td><td>0.0002925 (4.8x)</td><td>0.0002917 (4.8x)</td><td>0.001394</td><td>0.00018 (8.7x)</td><td>0.0001561 (10.0x)</td><td>0.001568</td><td>0.0004111 (6.4x)</td><td>0.0003836 (6.8x)</td><td>0.002614</td><td>0.0001343</td><td>0.0001657</td></tr>
+<tr><td>5_campaign</td><td>0.03005 (10.7x)</td><td>0.03065 (10.5x)</td><td>0.3212</td><td>0.02175 (26.7x)</td><td>0.01582 (36.7x)</td><td>0.5812</td><td>0.05091 (18.1x)</td><td>0.04641 (19.8x)</td><td>0.9196</td><td>0.0001636</td><td>0.0001396</td></tr>
+<tr><td>6_cardio</td><td>0.001143 (3.4x)</td><td>0.001194 (3.3x)</td><td>0.003942</td><td>0.0008923 (6.5x)</td><td>0.0006305 (9.2x)</td><td>0.005812</td><td>0.001681 (5.5x)</td><td>0.001596 (5.8x)</td><td>0.009266</td><td>0.0001428</td><td>0.0001607</td></tr>
+<tr><td>7_Cardiotocography</td><td>0.001096 (3.9x)</td><td>0.001044 (4.1x)</td><td>0.004298</td><td>0.0009031 (7.4x)</td><td>0.0006389 (10.4x)</td><td>0.006673</td><td>0.001763 (6.0x)</td><td>0.001756 (6.1x)</td><td>0.01064</td><td>0.0001644</td><td>0.0001561</td></tr>
+<tr><td>8_celeba</td><td>0.1257 (7.4x)</td><td>0.1291 (7.2x)</td><td>0.9338</td><td>0.1055 (15.8x)</td><td>0.05969 (28.0x)</td><td>1.671</td><td>0.2316 (11.3x)</td><td>0.1744 (15.0x)</td><td>2.612</td><td>0.00015</td><td>0.000139</td></tr>
+<tr><td>9_census</td><td>2.294 (11.3x)</td><td>2.834 (9.1x)</td><td>25.85</td><td>1.792 (24.6x)</td><td>1.113 (39.6x)</td><td>44.04</td><td>4.129 (16.3x)</td><td>3.746 (18.0x)</td><td>67.34</td><td>0.0001493</td><td>0.0001468</td></tr>
+<tr><td>10_cover</td><td>0.05276 (6.8x)</td><td>0.05231 (6.8x)</td><td>0.3564</td><td>0.03673 (17.5x)</td><td>0.02445 (26.3x)</td><td>0.6423</td><td>0.08875 (11.3x)</td><td>0.07566 (13.3x)</td><td>1.004</td><td>0.0001659</td><td>0.000146</td></tr>
+<tr><td>11_donors</td><td>0.09409 (8.3x)</td><td>0.09494 (8.3x)</td><td>0.7836</td><td>0.06604 (25.5x)</td><td>0.04249 (39.7x)</td><td>1.686</td><td>0.1766 (14.1x)</td><td>0.145 (17.2x)</td><td>2.497</td><td>0.0001413</td><td>0.0001607</td></tr>
+<tr><td>12_fault</td><td>0.001646 (2.8x)</td><td>0.001582 (2.9x)</td><td>0.004554</td><td>0.001433 (5.3x)</td><td>0.001008 (7.6x)</td><td>0.007628</td><td>0.002573 (4.4x)</td><td>0.002319 (4.9x)</td><td>0.01135</td><td>0.0001414</td><td>0.000144</td></tr>
+<tr><td>13_fraud</td><td>0.3173 (3.9x)</td><td>0.3217 (3.8x)</td><td>1.232</td><td>0.2602 (8.2x)</td><td>0.1426 (15.0x)</td><td>2.141</td><td>0.5858 (5.8x)</td><td>0.453 (7.5x)</td><td>3.39</td><td>0.0001357</td><td>0.0001305</td></tr>
+<tr><td>14_glass</td><td>0.0002099 (4.6x)</td><td>0.000219 (4.4x)</td><td>0.0009608</td><td>0.00009149 (9.2x)</td><td>0.0001093 (7.7x)</td><td>0.0008444</td><td>0.0003033 (4.9x)</td><td>0.0002557 (5.8x)</td><td>0.001489</td><td>0.0001492</td><td>0.0001597</td></tr>
+<tr><td>15_Hepatitis</td><td>0.0001928 (5.0x)</td><td>0.0002041 (4.7x)</td><td>0.0009585</td><td>0.0001277 (6.4x)</td><td>0.0001073 (7.6x)</td><td>0.0008205</td><td>0.0002712 (5.5x)</td><td>0.0002332 (6.4x)</td><td>0.001498</td><td>0.0001454</td><td>0.0001592</td></tr>
+<tr><td>16_http</td><td>0.03185 (8.1x)</td><td>0.03207 (8.0x)</td><td>0.2572</td><td>0.02393 (19.6x)</td><td>0.01936 (24.3x)</td><td>0.4696</td><td>0.0671 (11.0x)</td><td>0.04895 (15.1x)</td><td>0.7369</td><td>0.0001597</td><td>0.0001556</td></tr>
+<tr><td>17_InternetAds</td><td>0.03949 (9.1x)</td><td>0.0402 (9.0x)</td><td>0.361</td><td>0.02643 (24.1x)</td><td>0.01937 (32.9x)</td><td>0.6371</td><td>0.06324 (16.0x)</td><td>0.05571 (18.2x)</td><td>1.014</td><td>0.0001384</td><td>0.0001522</td></tr>
+<tr><td>18_Ionosphere</td><td>0.0005413 (2.6x)</td><td>0.000537 (2.6x)</td><td>0.001388</td><td>0.0004194 (4.1x)</td><td>0.0002927 (5.9x)</td><td>0.001725</td><td>0.0009219 (3.0x)</td><td>0.0008246 (3.3x)</td><td>0.002724</td><td>0.000161</td><td>0.0001527</td></tr>
+<tr><td>19_landsat</td><td>0.00352 (5.2x)</td><td>0.004246 (4.4x)</td><td>0.01847</td><td>0.002869 (11.3x)</td><td>0.002217 (14.6x)</td><td>0.03244</td><td>0.006125 (9.2x)</td><td>0.005312 (10.6x)</td><td>0.05635</td><td>0.0001515</td><td>0.0001528</td></tr>
+<tr><td>20_letter</td><td>0.000975 (4.8x)</td><td>0.001073 (4.3x)</td><td>0.004642</td><td>0.0007548 (8.7x)</td><td>0.0005904 (11.1x)</td><td>0.006556</td><td>0.00158 (7.0x)</td><td>0.001611 (6.8x)</td><td>0.01102</td><td>0.0001548</td><td>0.0001294</td></tr>
+<tr><td>21_Lymphography</td><td>0.000211 (5.0x)</td><td>0.0002053 (5.1x)</td><td>0.001047</td><td>0.0001328 (7.4x)</td><td>0.0001172 (8.4x)</td><td>0.0009807</td><td>0.000308 (5.7x)</td><td>0.0002656 (6.6x)</td><td>0.001762</td><td>0.0001481</td><td>0.0001395</td></tr>
+<tr><td>22_magic.gamma</td><td>0.006157 (2.7x)</td><td>0.006313 (2.7x)</td><td>0.01682</td><td>0.005067 (5.7x)</td><td>0.003156 (9.1x)</td><td>0.02887</td><td>0.01101 (4.6x)</td><td>0.008877 (5.7x)</td><td>0.05059</td><td>0.0001538</td><td>0.0001392</td></tr>
+<tr><td>23_mammography</td><td>0.001658 (4.6x)</td><td>0.00157 (4.9x)</td><td>0.007646</td><td>0.001327 (9.2x)</td><td>0.0009941 (12.3x)</td><td>0.0122</td><td>0.002577 (8.0x)</td><td>0.002388 (8.6x)</td><td>0.02052</td><td>0.0001336</td><td>0.000147</td></tr>
+<tr><td>24_mnist</td><td>0.009274 (7.4x)</td><td>0.009419 (7.3x)</td><td>0.06887</td><td>0.007249 (16.8x)</td><td>0.005297 (23.1x)</td><td>0.1221</td><td>0.01621 (12.6x)</td><td>0.01391 (14.7x)</td><td>0.2043</td><td>0.0001561</td><td>0.0001643</td></tr>
+<tr><td>25_musk</td><td>0.01084 (3.3x)</td><td>0.01071 (3.3x)</td><td>0.03539</td><td>0.008963 (8.3x)</td><td>0.005603 (13.3x)</td><td>0.0743</td><td>0.01946 (6.2x)</td><td>0.01652 (7.3x)</td><td>0.1205</td><td>0.0001455</td><td>0.0001549</td></tr>
+<tr><td>26_optdigits</td><td>0.004477 (6.6x)</td><td>0.00399 (7.4x)</td><td>0.0294</td><td>0.0033 (15.8x)</td><td>0.002686 (19.5x)</td><td>0.05229</td><td>0.00722 (12.6x)</td><td>0.006128 (14.9x)</td><td>0.09118</td><td>0.0001383</td><td>0.0001395</td></tr>
+<tr><td>27_PageBlocks</td><td>0.001744 (3.1x)</td><td>0.002065 (2.6x)</td><td>0.005353</td><td>0.001549 (5.5x)</td><td>0.001017 (8.3x)</td><td>0.008459</td><td>0.003273 (4.2x)</td><td>0.002347 (5.9x)</td><td>0.0138</td><td>0.0001367</td><td>0.0001573</td></tr>
+<tr><td>28_pendigits</td><td>0.003318 (2.9x)</td><td>0.003131 (3.1x)</td><td>0.00964</td><td>0.00258 (6.2x)</td><td>0.001814 (8.9x)</td><td>0.01608</td><td>0.005783 (4.7x)</td><td>0.004654 (5.8x)</td><td>0.027</td><td>0.0001601</td><td>0.0001585</td></tr>
+<tr><td>29_Pima</td><td>0.000348 (3.7x)</td><td>0.0003688 (3.5x)</td><td>0.001297</td><td>0.0002529 (5.6x)</td><td>0.0001918 (7.3x)</td><td>0.001408</td><td>0.0005971 (4.1x)</td><td>0.0004978 (4.9x)</td><td>0.002457</td><td>0.00015</td><td>0.0001551</td></tr>
+<tr><td>30_satellite</td><td>0.003673 (4.7x)</td><td>0.003667 (4.7x)</td><td>0.01729</td><td>0.003125 (10.4x)</td><td>0.002159 (15.1x)</td><td>0.03252</td><td>0.006303 (8.9x)</td><td>0.00553 (10.1x)</td><td>0.05608</td><td>0.0001462</td><td>0.0001398</td></tr>
+<tr><td>31_satimage-2</td><td>0.003177 (5.1x)</td><td>0.003303 (4.9x)</td><td>0.01615</td><td>0.002849 (10.0x)</td><td>0.001951 (14.6x)</td><td>0.0284</td><td>0.005586 (8.8x)</td><td>0.004752 (10.4x)</td><td>0.04942</td><td>0.0001644</td><td>0.0001566</td></tr>
+<tr><td>32_shuttle</td><td>0.005558 (8.3x)</td><td>0.00611 (7.5x)</td><td>0.04593</td><td>0.004434 (19.6x)</td><td>0.003482 (25.0x)</td><td>0.087</td><td>0.009897 (14.7x)</td><td>0.008737 (16.7x)</td><td>0.146</td><td>0.0001332</td><td>0.0001331</td></tr>
+<tr><td>33_skin</td><td>0.0125 (6.8x)</td><td>0.01244 (6.8x)</td><td>0.08481</td><td>0.009144 (16.1x)</td><td>0.007109 (20.7x)</td><td>0.1471</td><td>0.02667 (9.3x)</td><td>0.01964 (12.6x)</td><td>0.2471</td><td>0.0001534</td><td>0.0001407</td></tr>
+<tr><td>34_smtp</td><td>0.005404 (5.5x)</td><td>0.005841 (5.1x)</td><td>0.02985</td><td>0.004179 (13.7x)</td><td>0.002989 (19.2x)</td><td>0.05739</td><td>0.01104 (8.4x)</td><td>0.008255 (11.2x)</td><td>0.09277</td><td>0.0001401</td><td>0.0001456</td></tr>
+<tr><td>35_SpamBase</td><td>0.004272 (6.0x)</td><td>0.003894 (6.6x)</td><td>0.02573</td><td>0.003121 (15.6x)</td><td>0.002025 (24.1x)</td><td>0.04872</td><td>0.006433 (12.7x)</td><td>0.005773 (14.1x)</td><td>0.08147</td><td>0.0001442</td><td>0.0001334</td></tr>
+<tr><td>36_speech</td><td>0.04189 (2.6x)</td><td>0.04211 (2.6x)</td><td>0.1102</td><td>0.03511 (6.1x)</td><td>0.02077 (10.3x)</td><td>0.2133</td><td>0.07649 (4.6x)</td><td>0.06242 (5.6x)</td><td>0.3516</td><td>0.0001581</td><td>0.0001558</td></tr>
+<tr><td>37_Stamps</td><td>0.0002822 (3.8x)</td><td>0.0002803 (3.8x)</td><td>0.00106</td><td>0.0001876 (5.4x)</td><td>0.0001398 (7.3x)</td><td>0.001015</td><td>0.0004576 (3.9x)</td><td>0.0003734 (4.8x)</td><td>0.001792</td><td>0.0001374</td><td>0.0001459</td></tr>
+<tr><td>38_thyroid</td><td>0.0007609 (3.7x)</td><td>0.0007694 (3.7x)</td><td>0.002816</td><td>0.000557 (7.2x)</td><td>0.0003719 (10.9x)</td><td>0.004035</td><td>0.001279 (5.1x)</td><td>0.001122 (5.9x)</td><td>0.006576</td><td>0.0001572</td><td>0.0001312</td></tr>
+<tr><td>39_vertebral</td><td>0.0002272 (4.2x)</td><td>0.0002263 (4.2x)</td><td>0.0009611</td><td>0.0001359 (6.2x)</td><td>0.0001132 (7.4x)</td><td>0.0008362</td><td>0.0003065 (4.9x)</td><td>0.0002624 (5.7x)</td><td>0.001489</td><td>0.000159</td><td>0.0001412</td></tr>
+<tr><td>40_vowels</td><td>0.0008657 (2.3x)</td><td>0.0009013 (2.2x)</td><td>0.00198</td><td>0.0006683 (3.9x)</td><td>0.0004288 (6.1x)</td><td>0.002602</td><td>0.001542 (2.7x)</td><td>0.001295 (3.2x)</td><td>0.004179</td><td>0.0001709</td><td>0.0001426</td></tr>
+<tr><td>41_Waveform</td><td>0.002339 (2.6x)</td><td>0.002667 (2.3x)</td><td>0.006038</td><td>0.002166 (4.5x)</td><td>0.001435 (6.7x)</td><td>0.009671</td><td>0.004341 (3.4x)</td><td>0.003633 (4.1x)</td><td>0.01494</td><td>0.0001437</td><td>0.0001515</td></tr>
+<tr><td>42_WBC</td><td>0.0001952 (5.2x)</td><td>0.0002114 (4.8x)</td><td>0.001016</td><td>0.0001196 (7.7x)</td><td>0.0001074 (8.5x)</td><td>0.0009153</td><td>0.0002839 (5.7x)</td><td>0.0002598 (6.3x)</td><td>0.001624</td><td>0.0001384</td><td>0.0001434</td></tr>
+<tr><td>43_WDBC</td><td>0.0005823 (2.5x)</td><td>0.0005833 (2.5x)</td><td>0.001467</td><td>0.0004626 (3.9x)</td><td>0.0003041 (5.9x)</td><td>0.001793</td><td>0.0009953 (3.0x)</td><td>0.0008422 (3.5x)</td><td>0.002968</td><td>0.000149</td><td>0.0001586</td></tr>
+<tr><td>44_Wilt</td><td>0.001165 (2.5x)</td><td>0.001024 (2.9x)</td><td>0.002942</td><td>0.0009445 (4.4x)</td><td>0.0005989 (7.0x)</td><td>0.004177</td><td>0.001721 (4.0x)</td><td>0.001748 (3.9x)</td><td>0.006851</td><td>0.0001549</td><td>0.0001658</td></tr>
+<tr><td>45_wine</td><td>0.0002256 (4.3x)</td><td>0.0002281 (4.3x)</td><td>0.0009729</td><td>0.0001447 (6.0x)</td><td>0.0001163 (7.5x)</td><td>0.0008703</td><td>0.000308 (4.9x)</td><td>0.0002768 (5.4x)</td><td>0.0015</td><td>0.0001584</td><td>0.0001606</td></tr>
+<tr><td>46_WPBC</td><td>0.0004005 (3.0x)</td><td>0.0004293 (2.8x)</td><td>0.001215</td><td>0.0003016 (4.2x)</td><td>0.0002177 (5.8x)</td><td>0.001272</td><td>0.0006609 (3.3x)</td><td>0.0005729 (3.8x)</td><td>0.002175</td><td>0.0001665</td><td>0.0001597</td></tr>
+<tr><td>47_yeast</td><td>0.0004359 (4.3x)</td><td>0.0004418 (4.3x)</td><td>0.00189</td><td>0.0003013 (8.1x)</td><td>0.0002342 (10.5x)</td><td>0.002451</td><td>0.0007134 (5.6x)</td><td>0.0006608 (6.1x)</td><td>0.004012</td><td>0.0001353</td><td>0.0001503</td></tr>
+</table></div>
 </details>
-<h2>Memory</h2>
+<h3 id="bench-memory">Memory</h3>
 <p>How much the process memory peak grew during the run, in MB.</p>
-<table>
+<div class="table-wrap"><table class="nums">
 <tr><th rowspan="2">dataset</th><th colspan="3">fit, MB</th><th colspan="3">score, MB</th></tr>
 <tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
-<tr><td>1000x10</td><td>0.04688</td><td>0.05859</td><td>50.11</td><td>0.07812</td><td>0.01172</td><td>0.3555</td></tr>
-<tr><td>10000x10</td><td>0.7031</td><td>0.6875</td><td>52.78</td><td>0.8086</td><td>0.1211</td><td>3.812</td></tr>
-<tr><td>100000x10</td><td>6.883</td><td>6.867</td><td>73.35</td><td>6.742</td><td>1.227</td><td>44.89</td></tr>
-<tr><td>1000000x10</td><td>67.64</td><td>68.57</td><td>279.1</td><td>76.11</td><td>13.78</td><td>407</td></tr>
-<tr><td>10000x100</td><td>4.781</td><td>4.809</td><td>73.37</td><td>6.676</td><td>0.1211</td><td>38.05</td></tr>
-<tr><td>100000x100</td><td>48.07</td><td>48.07</td><td>279.8</td><td>75.25</td><td>1.227</td><td>412.8</td></tr>
-</table>
+<tr><td>1000x10</td><td>0.2578</td><td>0.2578</td><td>49.71</td><td>0.08203</td><td>0.01172</td><td>0.2812</td></tr>
+<tr><td>10000x10</td><td>0.875</td><td>0.875</td><td>52.54</td><td>0.8672</td><td>0.1523</td><td>3.816</td></tr>
+<tr><td>100000x10</td><td>6.973</td><td>6.973</td><td>73.12</td><td>8.477</td><td>1.531</td><td>45.29</td></tr>
+<tr><td>1000000x10</td><td>68.21</td><td>68.41</td><td>278.8</td><td>82</td><td>21.41</td><td>407.5</td></tr>
+<tr><td>10000x100</td><td>5.004</td><td>4.922</td><td>73.2</td><td>7.074</td><td>0.125</td><td>37.96</td></tr>
+<tr><td>100000x100</td><td>48.18</td><td>48.26</td><td>279.2</td><td>75.05</td><td>1.531</td><td>412.8</td></tr>
+</table></div>
 <details>
 <summary>ADBench datasets</summary>
-<table>
+<div class="table-wrap"><table class="nums">
 <tr><th rowspan="2">dataset</th><th colspan="3">fit, MB</th><th colspan="3">score, MB</th></tr>
 <tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
-<tr><td>1_ALOI</td><td>6.805</td><td>6.801</td><td>80.49</td><td>10.43</td><td>0.6016</td><td>60.32</td></tr>
-<tr><td>2_annthyroid</td><td>0.01562</td><td>0</td><td>49.96</td><td>0.125</td><td>0.08203</td><td>2.664</td></tr>
-<tr><td>3_backdoor</td><td>86.4</td><td>86.4</td><td>477.1</td><td>141.7</td><td>1.164</td><td>770.6</td></tr>
-<tr><td>4_breastw</td><td>0.02344</td><td>0.03516</td><td>49.84</td><td>0.003906</td><td>0.003906</td><td>0</td></tr>
-<tr><td>5_campaign</td><td>12.07</td><td>12.07</td><td>108.3</td><td>19.67</td><td>0.5</td><td>116.7</td></tr>
-<tr><td>6_cardio</td><td>0.003906</td><td>0.01562</td><td>49.9</td><td>0.01562</td><td>0.01562</td><td>2.512</td></tr>
-<tr><td>7_Cardiotocography</td><td>0</td><td>0.01562</td><td>49.96</td><td>0.02344</td><td>0.01953</td><td>2.656</td></tr>
-<tr><td>8_celeba</td><td>37.65</td><td>37.93</td><td>229.7</td><td>60.14</td><td>2.789</td><td>327.5</td></tr>
-<tr><td>9_census</td><td>689.8</td><td>689.6</td><td>3476</td><td>1142</td><td>4.117</td><td>6163</td></tr>
-<tr><td>10_cover</td><td>15.73</td><td>15.71</td><td>111.5</td><td>23.14</td><td>3.5</td><td>130.7</td></tr>
-<tr><td>11_donors</td><td>40.68</td><td>40.44</td><td>192.5</td><td>47.76</td><td>8.527</td><td>283.2</td></tr>
-<tr><td>12_fault</td><td>0.01562</td><td>0.01562</td><td>50.03</td><td>0.01953</td><td>0.01953</td><td>3.09</td></tr>
-<tr><td>13_fraud</td><td>42.71</td><td>42.33</td><td>240.2</td><td>62.17</td><td>3.922</td><td>338.8</td></tr>
-<tr><td>14_glass</td><td>0</td><td>0.01562</td><td>49.77</td><td>0</td><td>0</td><td>0</td></tr>
-<tr><td>15_Hepatitis</td><td>0.01562</td><td>0</td><td>49.77</td><td>0.003906</td><td>0</td><td>0</td></tr>
-<tr><td>16_http</td><td>12.99</td><td>13</td><td>83.28</td><td>15.61</td><td>6.949</td><td>75.22</td></tr>
-<tr><td>17_InternetAds</td><td>14.07</td><td>14.07</td><td>120.3</td><td>23.41</td><td>0.01953</td><td>116.2</td></tr>
-<tr><td>18_Ionosphere</td><td>0</td><td>0.01562</td><td>49.59</td><td>0</td><td>0</td><td>0.3906</td></tr>
-<tr><td>19_landsat</td><td>0</td><td>0</td><td>52.24</td><td>0.07422</td><td>0.07422</td><td>8.836</td></tr>
-<tr><td>20_letter</td><td>0.01562</td><td>0</td><td>50.28</td><td>0.1992</td><td>0.01562</td><td>2.969</td></tr>
-<tr><td>21_Lymphography</td><td>0.01562</td><td>0.01562</td><td>49.79</td><td>0</td><td>0</td><td>0</td></tr>
-<tr><td>22_magic.gamma</td><td>0</td><td>0</td><td>51.96</td><td>0.2266</td><td>0.2266</td><td>7.977</td></tr>
-<tr><td>23_mammography</td><td>0</td><td>0</td><td>51.04</td><td>0.2031</td><td>0.1328</td><td>3.07</td></tr>
-<tr><td>24_mnist</td><td>3.516</td><td>3.516</td><td>67.75</td><td>5.828</td><td>0.08594</td><td>28.49</td></tr>
-<tr><td>25_musk</td><td>2.34</td><td>2.34</td><td>62.05</td><td>3.887</td><td>0.03516</td><td>19.27</td></tr>
-<tr><td>26_optdigits</td><td>1.57</td><td>1.555</td><td>57.95</td><td>2.566</td><td>0.05859</td><td>12.65</td></tr>
-<tr><td>27_PageBlocks</td><td>0</td><td>0.01562</td><td>50.01</td><td>0.05859</td><td>0.05859</td><td>3.094</td></tr>
-<tr><td>28_pendigits</td><td>0.003906</td><td>0</td><td>51.34</td><td>0.07812</td><td>0.07812</td><td>4.191</td></tr>
-<tr><td>29_Pima</td><td>0</td><td>0.01562</td><td>49.76</td><td>0.003906</td><td>0.003906</td><td>0.03516</td></tr>
-<tr><td>30_satellite</td><td>0.01562</td><td>0.01562</td><td>53.82</td><td>1.047</td><td>0.07422</td><td>10.23</td></tr>
-<tr><td>31_satimage-2</td><td>0.01562</td><td>0</td><td>52.1</td><td>0.06641</td><td>0.06641</td><td>7.969</td></tr>
-<tr><td>32_shuttle</td><td>1.418</td><td>1.414</td><td>58.73</td><td>3.598</td><td>0.5977</td><td>20.05</td></tr>
-<tr><td>33_skin</td><td>6.734</td><td>6.73</td><td>65.59</td><td>6.738</td><td>2.996</td><td>32.23</td></tr>
-<tr><td>34_smtp</td><td>2.18</td><td>2.176</td><td>55.96</td><td>2.613</td><td>1.16</td><td>12.43</td></tr>
-<tr><td>35_SpamBase</td><td>0.01562</td><td>0.01953</td><td>52.29</td><td>0.04688</td><td>0.04688</td><td>8.961</td></tr>
-<tr><td>36_speech</td><td>6.785</td><td>6.801</td><td>84.21</td><td>11.28</td><td>0.03906</td><td>55.87</td></tr>
-<tr><td>37_Stamps</td><td>0</td><td>0.01562</td><td>49.71</td><td>0.003906</td><td>0</td><td>0.0625</td></tr>
-<tr><td>38_thyroid</td><td>0.01562</td><td>0</td><td>49.72</td><td>0.03906</td><td>0.03906</td><td>1.023</td></tr>
-<tr><td>39_vertebral</td><td>0.01562</td><td>0.01562</td><td>49.79</td><td>0</td><td>0</td><td>0</td></tr>
-<tr><td>40_vowels</td><td>0</td><td>0</td><td>49.55</td><td>0.01172</td><td>0.01562</td><td>0.6562</td></tr>
-<tr><td>41_Waveform</td><td>0</td><td>0.01562</td><td>51</td><td>0.03516</td><td>0.03516</td><td>2.758</td></tr>
-<tr><td>42_WBC</td><td>0.01562</td><td>0</td><td>49.73</td><td>0</td><td>0.003906</td><td>0</td></tr>
-<tr><td>43_WDBC</td><td>0</td><td>0</td><td>49.64</td><td>0</td><td>0</td><td>0.4492</td></tr>
-<tr><td>44_Wilt</td><td>0</td><td>0</td><td>49.59</td><td>0.05469</td><td>0.05859</td><td>1.09</td></tr>
-<tr><td>45_wine</td><td>0</td><td>0</td><td>49.79</td><td>0</td><td>0</td><td>0</td></tr>
-<tr><td>46_WPBC</td><td>0</td><td>0</td><td>49.73</td><td>0</td><td>0</td><td>0.03906</td></tr>
-<tr><td>47_yeast</td><td>0</td><td>0</td><td>49.75</td><td>0.01172</td><td>0.01172</td><td>0.5039</td></tr>
-</table>
+<tr><td>1_ALOI</td><td>7.367</td><td>7.445</td><td>80.27</td><td>10.43</td><td>0.6055</td><td>61.05</td></tr>
+<tr><td>2_annthyroid</td><td>0.5547</td><td>0.4727</td><td>49.71</td><td>0.3594</td><td>0.08594</td><td>2.727</td></tr>
+<tr><td>3_backdoor</td><td>87.84</td><td>87.84</td><td>476.8</td><td>141.1</td><td>1.172</td><td>770.7</td></tr>
+<tr><td>4_breastw</td><td>0.1484</td><td>0.2344</td><td>49.61</td><td>0.04688</td><td>0.007812</td><td>0</td></tr>
+<tr><td>5_campaign</td><td>12.82</td><td>12.83</td><td>108</td><td>19.68</td><td>0.5039</td><td>116.6</td></tr>
+<tr><td>6_cardio</td><td>0.3281</td><td>0.3281</td><td>49.66</td><td>0.3008</td><td>0.01953</td><td>2.449</td></tr>
+<tr><td>7_Cardiotocography</td><td>0.4453</td><td>0.3633</td><td>49.89</td><td>0.3477</td><td>0.01953</td><td>2.719</td></tr>
+<tr><td>8_celeba</td><td>40.79</td><td>40.46</td><td>229.2</td><td>60.27</td><td>2.793</td><td>327.4</td></tr>
+<tr><td>9_census</td><td>692</td><td>691.4</td><td>3476</td><td>1142</td><td>4.117</td><td>6164</td></tr>
+<tr><td>10_cover</td><td>19.75</td><td>19.83</td><td>111.3</td><td>24.02</td><td>3.504</td><td>130.5</td></tr>
+<tr><td>11_donors</td><td>42.29</td><td>42.49</td><td>192.6</td><td>47.97</td><td>8.684</td><td>282.7</td></tr>
+<tr><td>12_fault</td><td>0.4727</td><td>0.4727</td><td>49.81</td><td>0.4102</td><td>0.02344</td><td>3.023</td></tr>
+<tr><td>13_fraud</td><td>44.1</td><td>44.34</td><td>239.9</td><td>63.1</td><td>3.918</td><td>338.6</td></tr>
+<tr><td>14_glass</td><td>0.1172</td><td>0.1172</td><td>49.48</td><td>0.01562</td><td>0.003906</td><td>0</td></tr>
+<tr><td>15_Hepatitis</td><td>0.1172</td><td>0.1992</td><td>49.55</td><td>0.01562</td><td>0</td><td>0</td></tr>
+<tr><td>16_http</td><td>20.97</td><td>20.97</td><td>83.07</td><td>15.61</td><td>6.949</td><td>75.1</td></tr>
+<tr><td>17_InternetAds</td><td>14.26</td><td>14.26</td><td>120.1</td><td>23.36</td><td>0.02344</td><td>116.6</td></tr>
+<tr><td>18_Ionosphere</td><td>0.168</td><td>0.25</td><td>49.44</td><td>0.08594</td><td>0.003906</td><td>0.457</td></tr>
+<tr><td>19_landsat</td><td>1.316</td><td>1.398</td><td>51.89</td><td>1.797</td><td>0.07812</td><td>8.836</td></tr>
+<tr><td>20_letter</td><td>0.3828</td><td>0.4648</td><td>50.04</td><td>0.3984</td><td>0.01953</td><td>2.969</td></tr>
+<tr><td>21_Lymphography</td><td>0.1992</td><td>0.1992</td><td>49.5</td><td>0.02734</td><td>0.003906</td><td>0</td></tr>
+<tr><td>22_magic.gamma</td><td>1.414</td><td>1.496</td><td>51.81</td><td>1.594</td><td>0.2266</td><td>8.582</td></tr>
+<tr><td>23_mammography</td><td>0.7539</td><td>0.668</td><td>50.82</td><td>0.5625</td><td>0.1367</td><td>3.074</td></tr>
+<tr><td>24_mnist</td><td>3.766</td><td>3.848</td><td>67.39</td><td>5.836</td><td>0.08984</td><td>28.83</td></tr>
+<tr><td>25_musk</td><td>2.598</td><td>2.602</td><td>61.83</td><td>3.891</td><td>0.03125</td><td>19.04</td></tr>
+<tr><td>26_optdigits</td><td>1.758</td><td>1.762</td><td>57.71</td><td>2.57</td><td>0.05859</td><td>12.25</td></tr>
+<tr><td>27_PageBlocks</td><td>0.4805</td><td>0.4766</td><td>49.77</td><td>0.4492</td><td>0.0625</td><td>3.094</td></tr>
+<tr><td>28_pendigits</td><td>0.8516</td><td>0.7656</td><td>51.12</td><td>0.8711</td><td>0.08203</td><td>4.195</td></tr>
+<tr><td>29_Pima</td><td>0.2383</td><td>0.2383</td><td>49.53</td><td>0.04688</td><td>0.007812</td><td>0.03125</td></tr>
+<tr><td>30_satellite</td><td>1.398</td><td>1.316</td><td>53.54</td><td>1.797</td><td>0.07812</td><td>10.53</td></tr>
+<tr><td>31_satimage-2</td><td>1.199</td><td>1.281</td><td>51.86</td><td>1.617</td><td>0.06641</td><td>7.969</td></tr>
+<tr><td>32_shuttle</td><td>3.336</td><td>3.258</td><td>58.52</td><td>3.598</td><td>0.6016</td><td>19.95</td></tr>
+<tr><td>33_skin</td><td>9.164</td><td>9.078</td><td>65.36</td><td>6.738</td><td>2.996</td><td>32.45</td></tr>
+<tr><td>34_smtp</td><td>3.672</td><td>3.59</td><td>55.73</td><td>2.617</td><td>1.164</td><td>12.26</td></tr>
+<tr><td>35_SpamBase</td><td>1.391</td><td>1.391</td><td>52.06</td><td>1.848</td><td>0.05078</td><td>9.105</td></tr>
+<tr><td>36_speech</td><td>6.969</td><td>6.973</td><td>83.93</td><td>11.27</td><td>0.04297</td><td>56.14</td></tr>
+<tr><td>37_Stamps</td><td>0.1328</td><td>0.1289</td><td>49.41</td><td>0.02344</td><td>0.003906</td><td>0.0625</td></tr>
+<tr><td>38_thyroid</td><td>0.3828</td><td>0.3828</td><td>49.55</td><td>0.1836</td><td>0.04297</td><td>0.9727</td></tr>
+<tr><td>39_vertebral</td><td>0.1172</td><td>0.1953</td><td>49.43</td><td>0.01562</td><td>0.003906</td><td>0</td></tr>
+<tr><td>40_vowels</td><td>0.3047</td><td>0.2188</td><td>49.38</td><td>0.1406</td><td>0.01172</td><td>0.7891</td></tr>
+<tr><td>41_Waveform</td><td>0.6016</td><td>0.5195</td><td>50.8</td><td>0.5664</td><td>0.03516</td><td>2.758</td></tr>
+<tr><td>42_WBC</td><td>0.1172</td><td>0.2031</td><td>49.5</td><td>0.01562</td><td>0.003906</td><td>0</td></tr>
+<tr><td>43_WDBC</td><td>0.2539</td><td>0.1719</td><td>49.36</td><td>0.08594</td><td>0.003906</td><td>0.4492</td></tr>
+<tr><td>44_Wilt</td><td>0.4141</td><td>0.3281</td><td>49.42</td><td>0.2031</td><td>0.05469</td><td>1.039</td></tr>
+<tr><td>45_wine</td><td>0.1133</td><td>0.1992</td><td>49.56</td><td>0.01562</td><td>0.003906</td><td>0</td></tr>
+<tr><td>46_WPBC</td><td>0.2188</td><td>0.1406</td><td>49.5</td><td>0.05469</td><td>0.003906</td><td>0</td></tr>
+<tr><td>47_yeast</td><td>0.2773</td><td>0.1992</td><td>49.52</td><td>0.08984</td><td>0.01562</td><td>0.4414</td></tr>
+</table></div>
 </details>
-<h2>Saving and loading</h2>
-<table>
+<h3 id="bench-saving-and-loading">Saving and loading</h3>
+<div class="table-wrap"><table class="nums">
 <tr><th rowspan="2">dataset</th><th rowspan="2">variant</th><th colspan="3">save, s</th><th colspan="3">load, s</th><th colspan="3">file, MB</th></tr>
 <tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
-<tr><td>1000x10</td><td>default</td><td>0.0001525 (×3.8)</td><td>0.0001453 (×4.0)</td><td>0.0005834</td><td>0.00008596 (×4.7)</td><td>0.00008291 (×4.9)</td><td>0.0004048</td><td>0.04396</td><td>0.04397</td><td>0.2389</td></tr>
-<tr><td>1000x10</td><td>compressed</td><td>0.002032 (×2.8)</td><td>0.002037 (×2.8)</td><td>0.00578</td><td>0.00008859 (×20.4)</td><td>0.00008465 (×21.4)</td><td>0.00181</td><td>0.04394</td><td>0.04395</td><td>0.09782</td></tr>
-<tr><td>10000x10</td><td>default</td><td>0.0009483 (×1.8)</td><td>0.0008631 (×2.0)</td><td>0.001687</td><td>0.0004955 (×1.6)</td><td>0.0005062 (×1.6)</td><td>0.0007908</td><td>0.4356</td><td>0.4356</td><td>2.381</td></tr>
-<tr><td>10000x10</td><td>compressed</td><td>0.0294 (×3.0)</td><td>0.02608 (×3.3)</td><td>0.08709</td><td>0.000639 (×29.9)</td><td>0.0006214 (×30.7)</td><td>0.01908</td><td>0.4279</td><td>0.4272</td><td>1.633</td></tr>
-<tr><td>100000x10</td><td>default</td><td>0.01509 (×0.9)</td><td>0.01579 (×0.9)</td><td>0.01406</td><td>0.005517 (×1.7)</td><td>0.005366 (×1.8)</td><td>0.009624</td><td>4.179</td><td>4.179</td><td>23.8</td></tr>
-<tr><td>100000x10</td><td>compressed</td><td>0.8443 (×1.4)</td><td>0.7922 (×1.5)</td><td>1.186</td><td>0.008093 (×26.2)</td><td>0.008129 (×26.0)</td><td>0.2117</td><td>3.731</td><td>3.731</td><td>21.61</td></tr>
-<tr><td>1000000x10</td><td>default</td><td>0.1873 (×0.7)</td><td>0.1818 (×0.8)</td><td>0.1379</td><td>0.1082 (×0.5)</td><td>0.1066 (×0.5)</td><td>0.05534</td><td>40.61</td><td>40.61</td><td>238</td></tr>
-<tr><td>1000000x10</td><td>compressed</td><td>13.06 (×0.9)</td><td>12.73 (×1.0)</td><td>12.28</td><td>0.113 (×18.5)</td><td>0.1154 (×18.1)</td><td>2.091</td><td>30.64</td><td>30.64</td><td>223</td></tr>
-<tr><td>10000x100</td><td>default</td><td>0.01504 (×0.9)</td><td>0.01506 (×0.9)</td><td>0.01282</td><td>0.005496 (×1.8)</td><td>0.005449 (×1.8)</td><td>0.00962</td><td>4.323</td><td>4.323</td><td>22.98</td></tr>
-<tr><td>10000x100</td><td>compressed</td><td>0.65 (×1.3)</td><td>0.6561 (×1.3)</td><td>0.8332</td><td>0.006057 (×30.1)</td><td>0.00614 (×29.7)</td><td>0.1826</td><td>4.281</td><td>4.281</td><td>15.65</td></tr>
-<tr><td>100000x100</td><td>default</td><td>0.199 (×0.7)</td><td>0.1971 (×0.7)</td><td>0.1375</td><td>0.112 (×0.5)</td><td>0.1142 (×0.5)</td><td>0.05629</td><td>41.71</td><td>41.71</td><td>229.8</td></tr>
-<tr><td>100000x100</td><td>compressed</td><td>12.04 (×1.0)</td><td>11.89 (×1.0)</td><td>11.65</td><td>0.1381 (×14.4)</td><td>0.1392 (×14.3)</td><td>1.989</td><td>37.31</td><td>37.31</td><td>211.4</td></tr>
-</table>
-<h2>Quality</h2>
+<tr><td>1000x10</td><td>default</td><td>0.0001355 (3.9x)</td><td>0.0001396 (3.8x)</td><td>0.0005243</td><td>0.0001317 (2.7x)</td><td>0.0001415 (2.5x)</td><td>0.0003526</td><td>0.04396</td><td>0.04397</td><td>0.2389</td></tr>
+<tr><td>1000x10</td><td>compressed</td><td>0.001814 (2.7x)</td><td>0.001866 (2.7x)</td><td>0.00497</td><td>0.0001383 (11.4x)</td><td>0.0001378 (11.5x)</td><td>0.00158</td><td>0.04394</td><td>0.04395</td><td>0.09782</td></tr>
+<tr><td>10000x10</td><td>default</td><td>0.0008743 (1.8x)</td><td>0.0009051 (1.7x)</td><td>0.001537</td><td>0.0005385 (1.5x)</td><td>0.0005146 (1.6x)</td><td>0.0008159</td><td>0.4356</td><td>0.4356</td><td>2.381</td></tr>
+<tr><td>10000x10</td><td>compressed</td><td>0.02267 (3.4x)</td><td>0.02071 (3.7x)</td><td>0.07676</td><td>0.000642 (24.7x)</td><td>0.0006158 (25.8x)</td><td>0.01589</td><td>0.4279</td><td>0.4272</td><td>1.633</td></tr>
+<tr><td>100000x10</td><td>default</td><td>0.0135 (0.8x)</td><td>0.0131 (0.8x)</td><td>0.01083</td><td>0.005061 (1.8x)</td><td>0.004639 (1.9x)</td><td>0.008907</td><td>4.179</td><td>4.179</td><td>23.8</td></tr>
+<tr><td>100000x10</td><td>compressed</td><td>0.621 (1.7x)</td><td>0.6344 (1.7x)</td><td>1.053</td><td>0.007224 (24.6x)</td><td>0.007058 (25.1x)</td><td>0.1775</td><td>3.731</td><td>3.731</td><td>21.61</td></tr>
+<tr><td>1000000x10</td><td>default</td><td>0.1494 (0.8x)</td><td>0.1502 (0.8x)</td><td>0.1194</td><td>0.09162 (0.5x)</td><td>0.09013 (0.5x)</td><td>0.04246</td><td>40.61</td><td>40.61</td><td>238</td></tr>
+<tr><td>1000000x10</td><td>compressed</td><td>10.91 (1.0x)</td><td>10.87 (1.0x)</td><td>10.63</td><td>0.09703 (18.1x)</td><td>0.09664 (18.2x)</td><td>1.758</td><td>30.64</td><td>30.64</td><td>223</td></tr>
+<tr><td>10000x100</td><td>default</td><td>0.01238 (0.9x)</td><td>0.01262 (0.9x)</td><td>0.01086</td><td>0.004823 (1.7x)</td><td>0.004753 (1.7x)</td><td>0.008184</td><td>4.323</td><td>4.323</td><td>22.98</td></tr>
+<tr><td>10000x100</td><td>compressed</td><td>0.5138 (1.4x)</td><td>0.5251 (1.4x)</td><td>0.721</td><td>0.005453 (28.2x)</td><td>0.005203 (29.6x)</td><td>0.1537</td><td>4.281</td><td>4.281</td><td>15.65</td></tr>
+<tr><td>100000x100</td><td>default</td><td>0.1611 (0.9x)</td><td>0.1607 (0.9x)</td><td>0.1452</td><td>0.09305 (0.5x)</td><td>0.09303 (0.5x)</td><td>0.0442</td><td>41.71</td><td>41.71</td><td>229.8</td></tr>
+<tr><td>100000x100</td><td>compressed</td><td>10.51 (1.0x)</td><td>10.46 (1.0x)</td><td>10.05</td><td>0.1175 (14.6x)</td><td>0.1177 (14.6x)</td><td>1.714</td><td>37.31</td><td>37.31</td><td>211.4</td></tr>
+</table></div>
+<h3 id="bench-parallelism">Parallelism</h3>
+<p>Every library on all 16 cores: <code>n_jobs=0</code> in ecod-rs, <code>n_jobs=-1</code> in PyOD. Median time in seconds, in brackets how many times faster than the same library on one thread. Scores do not depend on the thread count.</p>
+<div class="table-wrap"><table class="nums">
+<tr><th rowspan="2">dataset</th><th colspan="3">fit, s</th><th colspan="3">score, s</th><th colspan="3">pipeline, s</th></tr>
+<tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
+<tr><td>1000x10</td><td>0.0007993 (0.7x)</td><td>0.0007854 (0.7x)</td><td>0.01284 (0.1x)</td><td>0.0003845 (1.1x)</td><td>0.0002835 (1.0x)</td><td>0.01272 (0.1x)</td><td>0.001121 (0.9x)</td><td>0.001039 (0.8x)</td><td>0.02563 (0.1x)</td></tr>
+<tr><td>10000x10</td><td>0.001744 (2.2x)</td><td>0.001913 (1.8x)</td><td>0.01669 (0.5x)</td><td>0.001355 (2.2x)</td><td>0.001076 (1.9x)</td><td>0.01817 (0.8x)</td><td>0.002786 (2.2x)</td><td>0.002535 (1.9x)</td><td>0.03453 (0.7x)</td></tr>
+<tr><td>100000x10</td><td>0.007369 (4.8x)</td><td>0.007774 (4.7x)</td><td>0.06714 (1.6x)</td><td>0.004925 (6.1x)</td><td>0.002927 (5.4x)</td><td>0.1022 (1.8x)</td><td>0.01286 (5.2x)</td><td>0.0104 (5.0x)</td><td>0.1731 (1.7x)</td></tr>
+<tr><td>1000000x10</td><td>0.09221 (4.5x)</td><td>0.09768 (4.2x)</td><td>0.7689 (2.0x)</td><td>0.06469 (4.9x)</td><td>0.03848 (4.6x)</td><td>1.345 (1.9x)</td><td>0.1638 (4.6x)</td><td>0.133 (4.4x)</td><td>2.091 (1.9x)</td></tr>
+<tr><td>10000x100</td><td>0.005323 (5.8x)</td><td>0.005325 (5.6x)</td><td>0.06085 (1.4x)</td><td>0.003857 (7.3x)</td><td>0.002779 (5.1x)</td><td>0.09493 (1.5x)</td><td>0.008996 (6.6x)</td><td>0.00778 (5.6x)</td><td>0.1559 (1.5x)</td></tr>
+<tr><td>100000x100</td><td>0.05691 (6.2x)</td><td>0.05779 (5.8x)</td><td>0.5902 (2.1x)</td><td>0.05401 (5.6x)</td><td>0.02512 (6.2x)</td><td>1.042 (2.1x)</td><td>0.1226 (5.3x)</td><td>0.08547 (5.8x)</td><td>1.65 (2.1x)</td></tr>
+</table></div>
+<h3 id="bench-quality">Quality</h3>
 <p>ROC AUC on the ADBench test part.</p>
-<table>
+<div class="table-wrap"><table class="nums">
 <tr><th rowspan="2">dataset</th><th colspan="3">ROC AUC</th></tr>
 <tr><th>ECOD</th><th>InductiveECOD</th><th>pyod-ECOD</th></tr>
 <tr><td>1_ALOI</td><td>0.5264</td><td>0.5262</td><td>0.5264</td></tr>
@@ -233,4 +619,9 @@ zstd levels 3 and 19 for ecod-rs, joblib levels 0 and 3 for PyOD.</li>
 <tr><td>45_wine</td><td>0.43</td><td>0.4</td><td>0.43</td></tr>
 <tr><td>46_WPBC</td><td>0.44</td><td>0.4238</td><td>0.44</td></tr>
 <tr><td>47_yeast</td><td>0.4335</td><td>0.4327</td><td>0.4335</td></tr>
-</table>
+</table></div>
+<!-- benchmark:end -->
+
+</main>
+</body>
+</html>

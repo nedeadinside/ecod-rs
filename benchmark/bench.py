@@ -30,7 +30,9 @@ ADBENCH_API = (
     "https://api.github.com/repos/Minqi824/ADBench/contents/adbench/datasets/Classical"
 )
 OUT_CSV = Path(__file__).parent / "results.csv"
+# Benchmark section is written into the docs page between these markers
 OUT_HTML = Path(__file__).parent.parent / "docs" / "index.html"
+MARKERS = ("<!-- benchmark:start -->", "<!-- benchmark:end -->")
 
 LIBS = ["ECOD", "InductiveECOD", "pyod-ECOD"]
 PHASES = [
@@ -52,10 +54,8 @@ RS = {"ECOD": ECOD, "InductiveECOD": InductiveECOD}
 RS_LEVEL = {"default": 3, "compressed": 19}
 PYOD_COMPRESS = {"default": 0, "compressed": 3}
 
-INTRO = f"""<h1>ecod-rs benchmark</h1>
-<p><a href="https://github.com/nedeadinside/ecod-rs">ecod-rs</a> is a Rust implementation of the ECOD outlier detector
-(<a href="https://arxiv.org/abs/2201.00382">Li et al., 2022</a>) with Python bindings.
-Here it is compared with ECOD from <a href="https://github.com/yzhao062/pyod">PyOD</a>.</p>
+INTRO = f"""<h2 id="benchmark">Benchmark</h2>
+<p>ecod-rs compared with ECOD from <a href="https://github.com/yzhao062/pyod">PyOD</a>.</p>
 <p>Data is random normal noise of several sizes (rows x features) and the classical datasets from
 <a href="https://github.com/Minqi824/ADBench">ADBench</a>. Each dataset is split 60/40 into train and test.
 Every measurement runs in a fresh process, times are taken over {REPEATS} runs.
@@ -350,15 +350,15 @@ def html_table(
         f'<th colspan="{len(cols)}">{g}</th>' for g, cols in groups.items()
     )
     sub = "".join(f"<th>{c}</th>" for cols in groups.values() for c in cols)
-    lines = ["<table>", f"<tr>{top}</tr>", f"<tr>{sub}</tr>"]
+    lines = ['<div class="table-wrap"><table class="nums">', f"<tr>{top}</tr>", f"<tr>{sub}</tr>"]
     lines += ["<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>" for row in body]
-    lines.append("</table>")
+    lines.append("</table></div>")
     return "\n".join(lines)
 
 
 def write_html() -> None:
     """
-    Build the report page from the results CSV.
+    Write the benchmark section of the docs page from the results CSV.
     """
     with OUT_CSV.open(newline="") as f:
         rows = {
@@ -396,7 +396,7 @@ def write_html() -> None:
         """
         text = fmt(get(dataset, lib, phase, variant, "wall_median_s"))
         ratio = None if lib == "pyod-ECOD" else speedup(dataset, lib, phase, variant)
-        return text if ratio is None else f"{text} (×{ratio:.1f})"
+        return text if ratio is None else f"{text} ({ratio:.1f}x)"
 
     def summary(lib: str, phase: str, variant: str) -> str:
         """
@@ -408,7 +408,7 @@ def write_html() -> None:
         if not ratios:
             return "-"
         return (
-            f"×{statistics.median(ratios):.1f} ({min(ratios):.1f} to {max(ratios):.1f})"
+            f"{statistics.median(ratios):.1f}x ({min(ratios):.1f}x to {max(ratios):.1f}x)"
         )
 
     def speed(datasets: list[str]) -> str:
@@ -481,7 +481,7 @@ def write_html() -> None:
             return "-"
         if not single:
             return fmt(own)
-        return f"{fmt(own)} (×{float(single) / float(own):.1f})"
+        return f"{fmt(own)} ({float(single) / float(own):.1f}x)"
 
     parallel = html_table(
         ["dataset"],
@@ -504,29 +504,27 @@ def write_html() -> None:
     )
 
     parts = [
-        '<!doctype html>\n<meta charset="utf-8">\n<title>ecod-rs benchmark</title>',
-        "<style>table { border-collapse: collapse; } th, td { border: 1px solid; }</style>",
         INTRO,
-        "<h2>Summary</h2>",
+        '<h3 id="bench-summary">Summary</h3>',
         (
             "<p>How many times ecod-rs is faster than pyod-ECOD: median over all "
             f"{len(present)} datasets, the range in brackets. Below 1 means slower.</p>"
         ),
         overview,
-        "<h2>Speed</h2>",
+        '<h3 id="bench-speed">Speed</h3>',
         (
             "<p>Median time in seconds. In brackets, how many times faster than "
             "pyod-ECOD. PyOD has no separate convert step.</p>"
         ),
         speed(synth),
         f"<details>\n<summary>ADBench datasets</summary>\n{speed(adbench)}\n</details>",
-        "<h2>Memory</h2>",
+        '<h3 id="bench-memory">Memory</h3>',
         "<p>How much the process memory peak grew during the run, in MB.</p>",
         memory(synth),
         f"<details>\n<summary>ADBench datasets</summary>\n{memory(adbench)}\n</details>",
-        "<h2>Saving and loading</h2>",
+        '<h3 id="bench-saving-and-loading">Saving and loading</h3>',
         persistence,
-        "<h2>Parallelism</h2>",
+        '<h3 id="bench-parallelism">Parallelism</h3>',
         (
             f"<p>Every library on all {len(os.sched_getaffinity(0))} cores: "
             "<code>n_jobs=0</code> in ecod-rs, <code>n_jobs=-1</code> in PyOD. "
@@ -534,12 +532,13 @@ def write_html() -> None:
             "library on one thread. Scores do not depend on the thread count.</p>"
         ),
         parallel,
-        "<h2>Quality</h2>",
+        '<h3 id="bench-quality">Quality</h3>',
         "<p>ROC AUC on the ADBench test part.</p>",
         quality,
     ]
-    OUT_HTML.parent.mkdir(exist_ok=True)
-    OUT_HTML.write_text("\n".join(parts) + "\n")
+    page = OUT_HTML.read_text()
+    start, end = page.index(MARKERS[0]) + len(MARKERS[0]), page.index(MARKERS[1])
+    OUT_HTML.write_text(page[:start] + "\n" + "\n".join(parts) + "\n" + page[end:])
 
 
 if __name__ == "__main__":
